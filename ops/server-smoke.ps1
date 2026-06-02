@@ -1,6 +1,6 @@
 param(
-  [string]$BaseUrl = "http://87.99.146.185:3101",
-  [string]$SshTarget = "root@87.99.146.185",
+  [string]$BaseUrl = "http://127.0.0.1:3101",
+  [string]$SshTarget = "",
   [int]$TimeoutSec = 360,
   [switch]$SkipVisualPost,
   [switch]$SkipSsh
@@ -64,7 +64,7 @@ function Assert-True {
 
 Write-Step "base url" "INFO" $BaseUrl
 
-if (-not $SkipSsh) {
+if (-not $SkipSsh -and $SshTarget) {
   $sshCommand = @'
 set -e
 echo "== pm2 =="

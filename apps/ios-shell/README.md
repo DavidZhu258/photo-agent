@@ -2,7 +2,7 @@
 
 Windows-first Capacitor shell for one iOS app:
 
-- **Mira 识境** loads the deployed travel home and links to the `/visual` discovery feature.
+- **Mira 识境** loads the configured travel home and links to the `/visual` discovery feature.
 
 The Web and FastAPI backend remain the source of truth. This shell only adds the
 minimum native wrapper needed for TestFlight/self-use: camera/photo access,
@@ -31,21 +31,20 @@ npm run config:app
 That command renders `capacitor.config.json` for the unified Mira app. The rendered
 file is ignored because CI/macOS builds should regenerate it.
 
-The default URLs point to the current deployed Web validation server:
+The default URL is a placeholder for open-source builds:
 
-- Mira: `http://87.99.146.185:3101/`
+- Mira: `https://mira-web.example.com/`
 
-For iOS distribution, prefer HTTPS:
+Set your deployed Web origin with an environment override:
 
 ```powershell
 $env:CAPACITOR_UNIFIED_URL='https://your-domain.example/'
 ```
 
-The current HTTP default is acceptable for local/internal smoke only. A macOS
-build that keeps HTTP will need an App Transport Security exception in the
-generated Xcode project; `npm run ios:sync` now patches the generated
-`Info.plist` with a WebView-only ATS exception for the configured HTTP host.
-Production/TestFlight should use HTTPS instead.
+HTTP is acceptable for local/internal smoke only. A macOS build that keeps HTTP
+will need an App Transport Security exception in the generated Xcode project;
+`npm run ios:sync` patches the generated `Info.plist` with a WebView-only ATS
+exception for the configured HTTP host. Production/TestFlight should use HTTPS.
 
 ## macOS / Cloud Build
 

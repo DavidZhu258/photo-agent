@@ -29,7 +29,7 @@
       "appId": "com.photoagent.mira",
       "appName": "Mira 识境",
       "displayName": "Mira 识境",
-      "startUrl": "http://87.99.146.185:3101/",
+      "startUrl": "https://mira-web.example.com/",
       "description": "Unified Mira iOS shell for travel recommendation and one-photo visual discovery.",
       "permissions": [
         "Camera",

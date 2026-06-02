@@ -30,16 +30,16 @@ Invoke-WebRequest http://127.0.0.1:3300
 docker stats --no-stream --format "table {{.Name}}\t{{.MemUsage}}\t{{.CPUPerc}}"
 ```
 
-## Remote Server Smoke
+## Deployment Smoke
 
-The public self-hosted deployment is expected to run through Nginx on
-`87.99.146.185:3101`, with Next.js private on `127.0.0.1:3102` and FastAPI
-private on `127.0.0.1:8768`.
+The self-hosted deployment is expected to run through Nginx, with Next.js and
+FastAPI private to the host. Keep concrete deployment addresses out of the
+open-source docs and pass them as command-line parameters.
 
 Run the reliability smoke from Windows PowerShell:
 
 ```powershell
-.\ops\server-smoke.ps1
+.\ops\server-smoke.ps1 -BaseUrl "https://your-domain.example" -SshTarget "user@host.example"
 ```
 
 The smoke checks:

@@ -8,13 +8,31 @@ Mira is a dual-end AI travel and visual discovery project:
 
 The product is designed for a phone-first workflow: ask where to go, get grounded place cards and map pins, then switch to photo-based discovery when you want to understand what you are seeing.
 
-## Screenshots
+## Product Gallery
 
-Screenshots generated from the current project are stored in `docs/screenshots/`.
+Web and iOS builds are both deployed and validated. Deployment URLs are intentionally omitted from this open-source README; the screenshots below show the running dual-end experience.
 
-| Web travel | Web visual | iOS shell |
+### Web Travel
+
+| Travel answer with map | Follow-up travel map |
+| --- | --- |
+| ![Web travel map with recommendation cards](docs/screenshots/showcase/web-travel-motsunabe-map.png) | ![Web travel follow-up map with cards](docs/screenshots/showcase/web-travel-yatai-map.png) |
+
+### Web Visual Discovery
+
+| Visual result | Perspectives |
+| --- | --- |
+| ![Web visual result overview](docs/screenshots/showcase/web-visual-result-overview.png) | ![Web visual perspectives](docs/screenshots/showcase/web-visual-perspectives.png) |
+
+| Visual clues | Sources and memory |
+| --- | --- |
+| ![Web visual clues](docs/screenshots/showcase/web-visual-clues.png) | ![Web visual sources and memory](docs/screenshots/showcase/web-visual-sources-memory.png) |
+
+### iOS Shell
+
+| Travel answer | Travel cards | Visual result |
 | --- | --- | --- |
-| ![Web travel](docs/screenshots/web-travel.png) | ![Web visual](docs/screenshots/web-visual.png) | ![iOS shell](docs/screenshots/ios-shell.png) |
+| ![iOS travel answer](docs/screenshots/showcase/ios-travel-answer.jpg) | ![iOS travel cards](docs/screenshots/showcase/ios-travel-cards.jpg) | ![iOS visual result](docs/screenshots/showcase/ios-visual-result.jpg) |
 
 ## What It Does
 
@@ -144,7 +162,7 @@ Recent local validation:
 - Web Playwright: `48 passed`
 - Web lint/build: passed
 - iOS shell tests: `4 passed`
-- Production smoke: Web travel, Web visual, backend health, travel background jobs, and visual POST returned 200.
+- Deployment smoke: Web travel, Web visual, backend health, travel background jobs, and visual POST returned 200.
 
 ## Security Notes
 
