@@ -1,0 +1,238 @@
+x-langfuse-env: &langfuse-env
+  DATABASE_URL: postgresql://postgres:photo_agent_langfuse_postgres@langfuse-postgres:5432/postgres
+  CLICKHOUSE_MIGRATION_URL: clickhouse://langfuse-clickhouse:9000
+  CLICKHOUSE_URL: http://langfuse-clickhouse:8123
+  CLICKHOUSE_USER: clickhouse
+  CLICKHOUSE_PASSWORD: photo_agent_langfuse_clickhouse
+  CLICKHOUSE_CLUSTER_ENABLED: "false"
+  REDIS_HOST: langfuse-redis
+  REDIS_PORT: "6379"
+  REDIS_AUTH: photo_agent_langfuse_redis
+  REDIS_TLS_ENABLED: "false"
+  LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+  LANGFUSE_S3_EVENT_UPLOAD_REGION: auto
+  LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://langfuse-minio:9000
+  LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minio
+  LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: photo_agent_minio_secret
+  LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+  LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
+  LANGFUSE_S3_MEDIA_UPLOAD_REGION: auto
+  LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://langfuse-minio:9000
+  LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: minio
+  LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: photo_agent_minio_secret
+  LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
+  LANGFUSE_S3_BATCH_EXPORT_BUCKET: langfuse
+  LANGFUSE_S3_BATCH_EXPORT_REGION: auto
+  LANGFUSE_S3_BATCH_EXPORT_ENDPOINT: http://langfuse-minio:9000
+  LANGFUSE_S3_BATCH_EXPORT_ACCESS_KEY_ID: minio
+  LANGFUSE_S3_BATCH_EXPORT_SECRET_ACCESS_KEY: photo_agent_minio_secret
+  LANGFUSE_S3_BATCH_EXPORT_FORCE_PATH_STYLE: "true"
+  LANGFUSE_INGESTION_QUEUE_DELAY_MS: "1000"
+  LANGFUSE_INGESTION_CLICKHOUSE_WRITE_INTERVAL_MS: "1000"
+
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: photo-agent-mysql
+    environment:
+      MYSQL_DATABASE: photo_agent
+      MYSQL_USER: photo_agent
+      MYSQL_PASSWORD: photo_agent
+      MYSQL_ROOT_PASSWORD: photo_agent_root
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --ngram-token-size=2
+    ports:
+      - "3306:3306"
+    volumes:
+      - photo_agent_mysql:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-pphoto_agent_root"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: photo-agent-redis
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --maxmemory
+      - 256mb
+      - --maxmemory-policy
+      - allkeys-lru
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - photo_agent_redis:/data
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    container_name: photo-agent-litellm
+    depends_on:
+      redis:
+        condition: service_healthy
+    env_file:
+      - ./ops/litellm.local.env
+    command:
+      - --config
+      - /app/config.yaml
+      - --port
+      - "4000"
+      - --host
+      - 0.0.0.0
+    ports:
+      - "127.0.0.1:4000:4000"
+    volumes:
+      - ./ops/litellm/config.yaml:/app/config.yaml:ro
+    mem_limit: 1536m
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:4000/health/liveliness', timeout=2)\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  langfuse-postgres:
+    image: postgres:17
+    container_name: photo-agent-langfuse-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: photo_agent_langfuse_postgres
+      POSTGRES_DB: postgres
+      TZ: UTC
+      PGTZ: UTC
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - langfuse_postgres_data:/var/lib/postgresql/data
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  langfuse-clickhouse:
+    image: clickhouse/clickhouse-server:24.8-alpine
+    container_name: photo-agent-langfuse-clickhouse
+    user: "101:101"
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: photo_agent_langfuse_clickhouse
+      TZ: UTC
+    volumes:
+      - langfuse_clickhouse_data:/var/lib/clickhouse
+      - langfuse_clickhouse_logs:/var/log/clickhouse-server
+    mem_limit: 1536m
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget --no-verbose --tries=1 --spider http://127.0.0.1:8123/ping || exit 1",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  langfuse-minio:
+    image: cgr.dev/chainguard/minio:latest
+    container_name: photo-agent-langfuse-minio
+    entrypoint: sh
+    command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: photo_agent_minio_secret
+    ports:
+      - "127.0.0.1:9090:9000"
+      - "127.0.0.1:9091:9001"
+    volumes:
+      - langfuse_minio_data:/data
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
+  langfuse-redis:
+    image: redis:7-alpine
+    container_name: photo-agent-langfuse-redis
+    command:
+      - redis-server
+      - --requirepass
+      - photo_agent_langfuse_redis
+      - --maxmemory
+      - 256mb
+      - --maxmemory-policy
+      - noeviction
+    volumes:
+      - langfuse_redis_data:/data
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "photo_agent_langfuse_redis", "ping"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
+  langfuse-worker:
+    image: langfuse/langfuse-worker:3
+    container_name: photo-agent-langfuse-worker
+    depends_on:
+      langfuse-postgres:
+        condition: service_healthy
+      langfuse-clickhouse:
+        condition: service_healthy
+      langfuse-minio:
+        condition: service_healthy
+      langfuse-redis:
+        condition: service_healthy
+    env_file:
+      - ./ops/langfuse.local.env
+    environment:
+      <<: *langfuse-env
+      NODE_OPTIONS: --max-old-space-size=1024
+    mem_limit: 1536m
+
+  langfuse-web:
+    image: langfuse/langfuse:3
+    container_name: photo-agent-langfuse-web
+    depends_on:
+      langfuse-postgres:
+        condition: service_healthy
+      langfuse-clickhouse:
+        condition: service_healthy
+      langfuse-minio:
+        condition: service_healthy
+      langfuse-redis:
+        condition: service_healthy
+    env_file:
+      - ./ops/langfuse.local.env
+    environment:
+      <<: *langfuse-env
+      NODE_OPTIONS: --max-old-space-size=1536
+    ports:
+      - "127.0.0.1:3300:3000"
+    mem_limit: 2048m
+
+volumes:
+  photo_agent_mysql:
+  photo_agent_redis:
+  langfuse_postgres_data:
+  langfuse_clickhouse_data:
+  langfuse_clickhouse_logs:
+  langfuse_minio_data:
+  langfuse_redis_data:

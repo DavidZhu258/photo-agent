@@ -1,0 +1,59 @@
+{
+  "defaults": {
+    "webDir": "www",
+    "backgroundColor": "#f6f5f2",
+    "ios": {
+      "contentInset": "automatic",
+      "scrollEnabled": true,
+      "allowsLinkPreview": false
+    },
+    "plugins": {
+      "StatusBar": {
+        "style": "LIGHT",
+        "backgroundColor": "#f6f5f2",
+        "overlaysWebView": false
+      },
+      "Keyboard": {
+        "resize": "native",
+        "style": "light",
+        "resizeOnFullScreen": true
+      },
+      "SplashScreen": {
+        "launchAutoHide": true,
+        "backgroundColor": "#f6f5f2"
+      }
+    }
+  },
+  "targets": {
+    "unified": {
+      "appId": "com.photoagent.mira",
+      "appName": "Mira 识境",
+      "displayName": "Mira 识境",
+      "startUrl": "http://87.99.146.185:3101/",
+      "description": "Unified Mira iOS shell for travel recommendation and one-photo visual discovery.",
+      "permissions": [
+        "Camera",
+        "PhotoLibrary",
+        "MicrophoneForSpeechPlayback",
+        "LocationWhenInUseOptional"
+      ],
+      "requiredWebCapabilities": [
+        "travelChat",
+        "recommendationCards",
+        "conditionalMapPanel",
+        "hotelFlightOfferCards",
+        "singleImageUpload",
+        "visualDeepCards",
+        "debugThoughtDisclosure",
+        "speechPlayback"
+      ],
+      "nativeLinks": [
+        "appleMaps",
+        "googleMaps",
+        "mapbox",
+        "shareSheet",
+        "externalBrowser"
+      ]
+    }
+  }
+}

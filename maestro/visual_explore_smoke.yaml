@@ -1,0 +1,10 @@
+appId: com.example.mobile
+---
+- launchApp
+- assertVisible: "Snap Explore"
+- assertVisible: "拍照"
+- assertVisible: "相册"
+- tapOn: "测试探索"
+- assertVisible: "这是什么"
+- assertVisible: "青蓮院門跡，类别：temple"
+- assertVisible: "怎么拍"

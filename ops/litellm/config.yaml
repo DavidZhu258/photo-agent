@@ -1,0 +1,69 @@
+model_list:
+  - model_name: mistralai/Mistral-Small-3.2-24B-Instruct-2506
+    litellm_params:
+      model: deepinfra/mistralai/Mistral-Small-3.2-24B-Instruct-2506
+      api_key: os.environ/DEEPINFRA_API_KEY
+  - model_name: google/gemma-4-26B-A4B-it
+    litellm_params:
+      model: deepinfra/google/gemma-4-26B-A4B-it
+      api_key: os.environ/DEEPINFRA_API_KEY
+  - model_name: travel-router
+    litellm_params:
+      model: deepinfra/google/gemini-3.1-pro
+      api_key: os.environ/DEEPINFRA_API_KEY
+  - model_name: travel-orchestrator
+    litellm_params:
+      model: deepinfra/openai/gpt-oss-120b
+      api_key: os.environ/DEEPINFRA_API_KEY
+  - model_name: travel-complex-route
+    litellm_params:
+      model: deepinfra/openai/gpt-oss-120b
+      api_key: os.environ/DEEPINFRA_API_KEY
+  - model_name: travel-semantic
+    litellm_params:
+      model: deepinfra/google/gemini-3.1-pro
+      api_key: os.environ/DEEPINFRA_API_KEY
+  - model_name: travel-router-fast
+    litellm_params:
+      model: deepinfra/deepseek-ai/DeepSeek-V4-Flash
+      api_key: os.environ/DEEPINFRA_API_KEY
+  - model_name: travel-fast
+    litellm_params:
+      model: deepinfra/deepseek-ai/DeepSeek-V4-Flash
+      api_key: os.environ/DEEPINFRA_API_KEY
+  - model_name: travel-reasoning
+    litellm_params:
+      model: deepinfra/openai/gpt-oss-120b
+      api_key: os.environ/DEEPINFRA_API_KEY
+  - model_name: travel-critic
+    litellm_params:
+      model: deepinfra/openai/gpt-oss-120b
+      api_key: os.environ/DEEPINFRA_API_KEY
+  - model_name: travel-formatter
+    litellm_params:
+      model: deepinfra/openai/gpt-oss-120b
+      api_key: os.environ/DEEPINFRA_API_KEY
+
+litellm_settings:
+  drop_params: true
+  json_logs: true
+  request_timeout: 30
+  success_callback:
+    - langfuse
+  failure_callback:
+    - langfuse
+  cache: true
+  cache_params:
+    type: redis
+    host: photo-agent-redis
+    port: 6379
+    namespace: photo-agent-litellm
+    ttl: 900
+    supported_call_types:
+      - acompletion
+      - completion
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  disable_spend_logs: true
+  allow_requests_on_db_unavailable: true

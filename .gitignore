@@ -1,0 +1,50 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.env
+*.local.env
+backend/.env
+backend/.test_deps/
+ops/*.local.env
+.DS_Store
+codex/.cache/
+backend/uvicorn.*.log
+web/.next/
+.chainlit/
+third_party/chainlit/
+
+# Dependencies and generated app output
+node_modules/
+web/node_modules/
+web/.next/
+web/out/
+web/test-results/
+web/logs/
+apps/ios-shell/node_modules/
+apps/ios-shell/ios/
+apps/ios-shell/android/
+apps/ios-shell/www/
+apps/ios-shell/capacitor.config.json
+
+# Local runtime logs, screenshots, and generated diagnostics
+logs/
+*.log
+/*.png
+/*.jpg
+/*.jpeg
+html_*.txt
+
+# Local assistant/session state and scratch data
+.codex/
+codex/
+codex-project-summary.md
+.files/
+.chainlit/
+
+# Keep public examples, docs, and curated screenshots tracked.
+!docs/screenshots/
+!docs/screenshots/**

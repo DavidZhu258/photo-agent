@@ -1,0 +1,32 @@
+{
+  "name": "photo-agent-ios-shell",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Windows-first Capacitor shell for the unified Mira iOS app.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "config:app": "node scripts/render-capacitor-config.mjs unified",
+    "config:print": "node scripts/render-capacitor-config.mjs unified --print",
+    "ios:patch-ats": "node scripts/patch-ios-info-plist.mjs",
+    "ios:add": "npm run config:app && npx cap add ios",
+    "ios:sync": "npm run config:app && npx cap sync ios && npm run ios:patch-ats",
+    "ios:open": "npm run config:app && npx cap open ios",
+    "ios:build": "npm run config:app && npx cap build ios"
+  },
+  "dependencies": {
+    "@capacitor/app": "^8.0.0",
+    "@capacitor/browser": "^8.0.0",
+    "@capacitor/camera": "^8.0.0",
+    "@capacitor/core": "^8.0.0",
+    "@capacitor/geolocation": "^8.0.0",
+    "@capacitor/ios": "^8.0.0",
+    "@capacitor/keyboard": "^8.0.0",
+    "@capacitor/preferences": "^8.0.0",
+    "@capacitor/share": "^8.0.0",
+    "@capacitor/status-bar": "^8.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.0.0"
+  }
+}
