@@ -36,6 +36,14 @@ Web and iOS builds are both deployed and validated. Deployment URLs are intentio
 
 ## What It Does
 
+### Manager Report Automation
+
+Mira also includes an open-source daily/weekly engineering report workflow. It scans local project activity, writes an evidence JSON file, and uses an OpenAI-compatible GPT token to generate manager-ready Markdown reports.
+
+![Weekly manager report example](docs/screenshots/report-automation/weekly-report-example.png)
+
+See [Daily and Weekly Manager Report Automation](docs/manager-report-automation/README.md) for setup, one-off commands, scheduled task installation, privacy notes, and a sanitized example report.
+
 ### Travel Recommendations
 
 - Answers direct travel questions without forcing a map.
