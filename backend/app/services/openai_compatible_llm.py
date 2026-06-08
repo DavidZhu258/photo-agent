@@ -116,9 +116,11 @@ class OpenAICompatibleLLMClient:
                 )
                 response.raise_for_status()
                 response_payload = _response_json_or_sse_payload(response)
-                content = _message_content(response_payload)
-                if not content and tools:
+                content = ""
+                if tools:
                     content = _tool_calls_content(response_payload)
+                if not content:
+                    content = _message_content(response_payload)
                 if not content:
                     raise ValueError("model response content was empty")
                 return content

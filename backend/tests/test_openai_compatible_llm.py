@@ -261,3 +261,45 @@ async def test_complete_json_can_send_native_tools_with_auto_choice():
     assert "默认使用简体中文回答" in captured["payload"]["messages"][0]["content"]
     assert captured["payload"]["tools"][0]["function"]["name"] == "serper_places"
     assert captured["payload"]["tool_choice"] == "auto"
+
+
+@pytest.mark.asyncio
+async def test_complete_json_prefers_streamed_tool_calls_over_natural_language_preamble():
+    async def handler(request: httpx.Request) -> httpx.Response:
+        body = (
+            'data: {"choices":[{"delta":{"content":"我先查询真实地点。"},"finish_reason":null}]}\n\n'
+            'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"serper_places","arguments":"{\\"query\\":\\"福冈 第一次 旅游 景点\\",\\"category\\":\\"本地体验\\"}"}}]},"finish_reason":"tool_calls"}]}\n\n'
+            "data: [DONE]\n\n"
+        )
+        return httpx.Response(200, text=body, request=request)
+
+    client = OpenAICompatibleLLMClient(
+        api_key="test",
+        base_url="https://www.zzshu.cc/v1",
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        retry_base_delay=0,
+    )
+
+    result = await client.complete_json(
+        model="gpt-5.5",
+        system="注意回答需要分类",
+        payload={"query": "福冈有什么好玩的？"},
+        tools=[
+            {
+                "type": "function",
+                "function": {
+                    "name": "serper_places",
+                    "description": "Search real Google local/places results.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"query": {"type": "string"}, "category": {"type": "string"}},
+                        "required": ["query", "category"],
+                    },
+                },
+            }
+        ],
+        tool_choice="auto",
+    )
+
+    assert result["answer_mode"] == "place_cards"
+    assert result["tool_calls_requested"][0]["name"] == "serper_places"
