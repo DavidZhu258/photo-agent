@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 
 import pytest
 
@@ -1126,6 +1127,86 @@ class OutdoorSerperClient(MinimalSerperClient):
                 },
             ],
         )
+
+
+class FukuokaFirstTimerSerperClient(MinimalSerperClient):
+    async def search_local(self, request: TravelPlanRequest, category: str) -> list[dict]:
+        return await self._record(
+            f"serper_places:{category}",
+            [
+                {
+                    "title": "大濠公园",
+                    "type": "公园",
+                    "rating": 4.5,
+                    "reviews": 9400,
+                    "address": "Ohorikoen, Chuo Ward, Fukuoka",
+                    "latitude": 33.5869,
+                    "longitude": 130.3796,
+                    "place_id": "ohori",
+                    "query_variant": category,
+                },
+                {
+                    "title": "太宰府天满宫",
+                    "type": "神社",
+                    "rating": 4.5,
+                    "reviews": 18000,
+                    "address": "4 Chome-7-1 Saifu, Dazaifu",
+                    "latitude": 33.5214,
+                    "longitude": 130.5348,
+                    "place_id": "dazaifu-tenmangu",
+                    "query_variant": category,
+                },
+                {
+                    "title": "栉田神社",
+                    "type": "神社",
+                    "rating": 4.3,
+                    "reviews": 8400,
+                    "address": "1-41 Kamikawabatamachi, Hakata Ward",
+                    "latitude": 33.5931,
+                    "longitude": 130.4107,
+                    "place_id": "kushida-shrine",
+                    "query_variant": category,
+                },
+            ],
+        )
+
+
+@pytest.mark.asyncio
+async def test_first_timer_cards_explain_practical_fit_not_rating_address_metadata():
+    class FukuokaFirstTimerAgentClient(OrchestratorAgentClient):
+        async def run_agent(self, *, agent_name: str, model: str, prompt: str, payload: dict) -> dict:
+            if agent_name == "travel_orchestrator" and not payload.get("phase"):
+                self.calls.append({"agent_name": agent_name, "model": model, "prompt": prompt, "payload": payload})
+                return {
+                    "answer_mode": "place_cards",
+                    "sections": [{"title": "怎么选", "body": "第一次去福冈要选交通简单、城市代表性强、停留弹性的点。"}],
+                    "tool_calls_requested": [
+                        {
+                            "name": "serper_places",
+                            "arguments": {"query": "福冈 第一次 新手 推荐 景点", "category": "本地体验"},
+                            "required": True,
+                        }
+                    ],
+                }
+            if payload.get("phase") == "final_answer":
+                raise AssertionError("first-timer cards should be summarized deterministically")
+            return await super().run_agent(agent_name=agent_name, model=model, prompt=prompt, payload=payload)
+
+    response = await _supervisor(FukuokaFirstTimerAgentClient(), FukuokaFirstTimerSerperClient()).plan(
+        TravelPlanRequest(city="Fukuoka", query="福冈第一次去，有哪些地方值得去？给我几个适合新手的点。", allow_web_search=True)
+    )
+
+    assert response.raw_provider_refs["travel_orchestrator"]["finalization"] == "deterministic_structured_cards"
+    assert response.display_cards
+    markdown = response.formatted_markdown
+    assert "第一次" in markdown
+    assert "半日" in markdown or "2天" in markdown or "Day" in markdown
+    assert "交通" in markdown or "顺路" in markdown
+    assert "停留" in markdown or "时段" in markdown
+    assert "评分 4.5；位置" not in markdown
+    assert not re.search(r"新手(?:主候选|备选)：[^：\n]+（评分", markdown)
+    assert not any((card.display_reason or "").startswith("推荐理由：评分") for card in response.display_cards[:3])
+    assert any("散步" in (card.display_reason or "") or "半日" in (card.display_reason or "") for card in response.display_cards[:3])
 
 
 @pytest.mark.asyncio

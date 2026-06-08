@@ -3137,7 +3137,15 @@ def _display_cards(
             google_maps_uri = _google_maps_uri(item, title=title, address=address, lat=lat, lng=lng)
             match_details = _entity_match_details(item, resolved_intent)
             reason = agent_reasons.get(_title_key(title)) or _item_reason(item)
-            display_reason = _public_display_reason(item, reason)
+            display_reason = (
+                _task_aware_display_reason(
+                    item,
+                    request=request,
+                    resolved_intent=resolved_intent,
+                    group_title=group.title,
+                )
+                or _public_display_reason(item, reason)
+            )
             cards.append(
                 TravelDisplayCard(
                     id=card_id,
@@ -3985,6 +3993,196 @@ def _public_display_reason(item: dict[str, Any], reason: str | None = None) -> s
         if text and not _is_diagnostic_display_reason(text):
             return _card_description(item, text)
     return _fact_based_display_reason(item)
+
+
+def _task_aware_display_reason(
+    item: dict[str, Any],
+    *,
+    request: TravelPlanRequest,
+    resolved_intent: dict[str, object],
+    group_title: str,
+) -> str:
+    profile = _display_reason_task_profile(request)
+    if not profile:
+        return ""
+    title = _item_title(item)
+    text = _normalized_match_text(
+        " ".join(
+            str(item.get(key) or "")
+            for key in ["title", "name", "type", "category", "address", "location", "snippet", "description", "query_variant"]
+        )
+    )
+    category = _canonical_travel_category(group_title or resolved_intent.get("category"))
+
+    if profile == "first_timer":
+        return _first_timer_display_reason(title, text, category)
+    if profile == "rainy_day":
+        return _rainy_day_display_reason(title, text, category)
+    if profile == "family_half_day":
+        return _family_half_day_display_reason(title, text, category)
+    if profile == "snack_area":
+        return _snack_area_display_reason(title, text, category)
+    if profile == "budget_short_trip":
+        return _budget_display_reason(title, text, category)
+    if profile == "winter_first_timer":
+        return _winter_first_timer_display_reason(title, text, category)
+    if profile == "quiet_morning":
+        return _quiet_morning_display_reason(title, text, category)
+    if profile == "night_view_easy_transport":
+        return _night_view_display_reason(title, text, category)
+    if profile == "paced_itinerary":
+        return _paced_itinerary_display_reason(title, text, category)
+    return ""
+
+
+def _display_reason_task_profile(request: TravelPlanRequest) -> str:
+    text = " ".join(
+        [
+            request.query,
+            request.question,
+            " ".join(request.interest_tags),
+            " ".join(request.constraints),
+            " ".join(request.fixed_itinerary),
+            " ".join(request.requested_categories),
+        ]
+    )
+    lowered = text.lower()
+    city = (request.city or "").lower()
+    if _is_family_half_day_text(text):
+        return "family_half_day"
+    if _is_snack_area_text(text):
+        return "snack_area"
+    if _is_budget_short_trip_text(text):
+        return "budget_short_trip"
+    if _is_rainy_day_text(text):
+        return "rainy_day"
+    if _is_quiet_morning_text(text):
+        return "quiet_morning"
+    if _is_night_view_text(text):
+        return "night_view_easy_transport"
+    if ("札幌" in text or "sapporo" in lowered or "sapporo" in city) and any(token in text for token in ["冬", "雪祭", "雪"]):
+        return "winter_first_timer"
+    if any(token in text for token in ["第一次", "初访", "初訪", "新手", "第一次去"]) or "first" in lowered:
+        return "first_timer"
+    if _request_scope(request)["broad"] and any(token in text for token in ["节奏", "不要太赶", "不太赶", "慢一点", "轻松"]):
+        return "paced_itinerary"
+    return ""
+
+
+def _is_family_half_day_text(text: str) -> bool:
+    lowered = text.lower()
+    return (
+        any(token in text for token in ["孩子", "小孩", "亲子", "6岁", "6 岁", "儿童", "不太累", "半日"])
+        or "kid" in lowered
+        or "family" in lowered
+    ) and (any(token in text for token in ["孩子", "小孩", "亲子", "儿童"]) or "kid" in lowered or "family" in lowered)
+
+
+def _is_snack_area_text(text: str) -> bool:
+    lowered = text.lower()
+    return any(token in text for token in ["小吃", "道顿堀", "道頓堀", "区域", "街区", "本地吃"]) or "snack" in lowered or "food area" in lowered
+
+
+def _is_budget_short_trip_text(text: str) -> bool:
+    lowered = text.lower()
+    return any(token in text for token in ["低预算", "省钱", "预算比较低", "便宜"]) or "budget" in lowered
+
+
+def _is_rainy_day_text(text: str) -> bool:
+    lowered = text.lower()
+    return any(token in text for token in ["下雨", "雨天", "下雨天", "雨"]) or "rain" in lowered
+
+
+def _is_quiet_morning_text(text: str) -> bool:
+    lowered = text.lower()
+    return any(token in text for token in ["安静", "早上", "散步", "避开最挤", "人少"]) or ("quiet" in lowered and "walk" in lowered)
+
+
+def _is_night_view_text(text: str) -> bool:
+    lowered = text.lower()
+    return any(token in text for token in ["夜景", "看夜", "晚上看"]) or "night view" in lowered
+
+
+def _first_timer_display_reason(title: str, text: str, category: str) -> str:
+    if any(token in text for token in ["大濠", "ohori", "park", "公園", "公园", "湖"]):
+        return "适合第一站放慢节奏：湖边散步和拍照都轻松，停留 60–90 分钟，可和福冈城迹、赤坂/大名咖啡顺路。"
+    if any(token in text for token in ["太宰府", "dazaifu", "tenmangu", "天満宮", "天满宫"]):
+        return "适合半日小旅行：参道小吃和神社氛围完整，建议单独排半天，不要和市区点硬塞同一上午。"
+    if any(token in text for token in ["栉田", "櫛田", "kushida", "shrine", "神社"]):
+        return "适合博多老城区短停：停留 20–40 分钟，可和川端商店街、中洲或博多站顺路。"
+    if any(token in text for token in ["tower", "塔", "展望", "view", "observatory"]):
+        return "适合作为城市方位感第一站：看清海湾和市区布局后再排路线，停留约 60 分钟，天气差时降级为备选。"
+    if category == "美食":
+        return "适合作为初访补充：放在当天主景点附近解决一餐，比专门跨区打卡更省体力。"
+    return f"{title}适合新手短名单：先看交通是否顺路和停留弹性，再决定放进半日还是一日路线。"
+
+
+def _rainy_day_display_reason(title: str, text: str, category: str) -> str:
+    if any(token in text for token in ["museum", "美术", "美術", "博物", "art", "science", "水族", "aquarium"]):
+        return "雨天更稳：以室内参观为主，停留 90–150 分钟，适合搭配附近咖啡或车站商圈避雨。"
+    if any(token in text for token in ["商店街", "arcade", "地下", "mall", "market", "市場", "市场"]):
+        return "适合作为雨天短线：有遮蔽、吃逛灵活，但不要只把全天都排成商场，留一个文化或展馆点更有内容。"
+    if any(token in text for token in ["shrine", "temple", "神社", "寺", "公园", "公園", "park"]):
+        return "雨小时可短停，雨大就降级：控制在 20–40 分钟，并优先和最近的室内点顺路组合。"
+    return "雨天可作为备选：先核对是否有室内空间、遮蔽步行和最近车站，避免跨区冒雨赶路。"
+
+
+def _family_half_day_display_reason(title: str, text: str, category: str) -> str:
+    if any(token in text for token in ["park", "公園", "公园", "garden", "zoo", "aquarium", "水族", "动物", "動物"]):
+        return "适合带孩子半日慢玩：空间开阔或互动感强，主点控制在 90–150 分钟，状态好再加附近短停。"
+    if any(token in text for token in ["museum", "science", "博物", "科学", "室内", "indoor"]):
+        return "适合低疲劳半日：室内可控、休息点多，天气不好时也稳，别再跨区叠太多项目。"
+    if any(token in text for token in ["station", "駅", "站", "mall", "商场", "商場"]):
+        return "适合作为收尾或雨天备选：交通简单、吃饭和洗手间好解决，但不要替代当天唯一主体验。"
+    return "带 6 岁孩子可先放进半日短名单：看是否少换乘、有休息点、能在 2–3 小时内结束。"
+
+
+def _snack_area_display_reason(title: str, text: str, category: str) -> str:
+    if any(token in text for token in ["市場", "市场", "market", "商店街", "street", "横丁", "yokocho", "arcade"]):
+        return "适合本地小吃探索：店铺密度高、可边走边吃，建议放在晚餐前后 90 分钟，不用只挤道顿堀。"
+    if any(token in text for token in ["station", "駅", "站", "地下", "food hall"]):
+        return "适合交通优先的一餐：靠近车站、选择多，适合作为抵达日或转场日的省心小吃区。"
+    return "可作为道顿堀外的吃逛区域：重点看是否小店密集、晚间氛围好、离当天路线近。"
+
+
+def _budget_display_reason(title: str, text: str, category: str) -> str:
+    if any(token in text for token in ["park", "公園", "公园", "river", "河", "walk", "散步", "view", "展望"]):
+        return "低预算友好：适合用免费散步、拍照和看景打底，停留弹性大，把付费项目压到每天 0–1 个。"
+    if any(token in text for token in ["market", "市場", "市场", "商店街", "street", "mall"]):
+        return "适合省钱但不无聊：用街区小吃和商店街补氛围，边走边吃比连续付费景点更轻松。"
+    return "适合低预算短名单：先查门票和交通成本，能顺路或免费短停的点优先放进两天路线。"
+
+
+def _winter_first_timer_display_reason(title: str, text: str, category: str) -> str:
+    if any(token in text for token in ["museum", "博物", "beer", "啤酒", "indoor", "室内"]):
+        return "冬天稳妥的室内/半室内备选：适合风雪大时替换户外点，停留 60–120 分钟。"
+    if any(token in text for token in ["park", "公園", "公园", "snow", "雪", "山", "ropeway", "view", "展望"]):
+        return "适合冬季氛围，但要看天气和路况：白天排更稳，夜景或缆车类地点要预留防滑和停运缓冲。"
+    return "适合第一次冬天去时做备选：优先看是否交通简单、抗风雪、附近有室内休息点。"
+
+
+def _quiet_morning_display_reason(title: str, text: str, category: str) -> str:
+    if any(token in text for token in ["park", "公園", "公园", "garden", "river", "riverbank", "河", "御苑", "forest", "森林"]):
+        return "适合早上慢走：空间开阔、可绕路避人，建议 7–9 点短停，10 点后人流预期下调。"
+    if any(token in text for token in ["temple", "shrine", "寺", "神社"]):
+        return "早上可安静短停，但不要过度承诺人少：避开正门主轴，控制 30–60 分钟后转去更开阔区域。"
+    return "可作为清晨散步短名单：重点看是否有侧线、河边或公园边缘路线，而不是只按名气打卡。"
+
+
+def _night_view_display_reason(title: str, text: str, category: str) -> str:
+    if any(token in text for token in ["tower", "塔", "observatory", "展望", "山", "ropeway", "夜景", "view"]):
+        return "适合夜景候选：傍晚前到达更稳，先查回程交通和天气；交通麻烦时不要把它排到太晚。"
+    if any(token in text for token in ["bay", "港", "海", "river", "河", "canal", "运河", "運河"]):
+        return "适合低门槛夜景散步：比远郊展望台交通简单，可和晚餐或酒店回程顺路安排。"
+    return "夜景备选要先看回程难度：靠近公共交通和晚餐区域的点，实际体验往往比高分但远的点更稳。"
+
+
+def _paced_itinerary_display_reason(title: str, text: str, category: str) -> str:
+    if any(token in text for token in ["park", "公園", "公园", "garden", "river", "海", "湖", "walk"]):
+        return "适合慢节奏行程打底：停留弹性大，可作为半日主点，天气或体力变化时也容易调整。"
+    if any(token in text for token in ["shrine", "temple", "神社", "寺", "museum", "博物", "美术", "美術"]):
+        return "适合作为半日文化主点：不要和太多跨区地点硬串，留出交通、吃饭和临时休息缓冲。"
+    return "适合放进不赶的行程短名单：先按区域分组，每半天保留 1 个主点和 1 个附近备选。"
 
 
 def _is_diagnostic_display_reason(value: str) -> bool:

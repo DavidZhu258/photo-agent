@@ -1645,8 +1645,35 @@ def _card_summary_bullet(card: TravelDisplayCard, request: TravelPlanRequest) ->
     reason = _compact_sentence(card.display_reason or card.description or card.reason, limit=70)
     if not reason:
         reason = "信息相对完整，适合先放进短名单"
+    if _should_lead_card_summary_with_reason(request, reason):
+        return f"{card.title}：{reason}"
     fact_text = f"（{'；'.join(facts[:2])}）" if facts else ""
     return f"{card.title}{fact_text}：{reason}"
+
+
+def _should_lead_card_summary_with_reason(request: TravelPlanRequest, reason: str) -> bool:
+    query_text = f"{request.query} {request.question} {' '.join(request.interest_tags)} {' '.join(request.constraints)}"
+    lowered = query_text.lower()
+    task_aware = bool(
+        _is_family_half_day_query(query_text)
+        or _is_snack_area_query(query_text)
+        or _is_budget_short_trip_query(query_text)
+        or _is_winter_sapporo_query(request, query_text)
+        or _is_rainy_day_query(query_text)
+        or _is_quiet_morning_walk_query(query_text)
+        or _is_night_view_query(query_text)
+        or "第一次" in query_text
+        or "新手" in query_text
+        or "first" in lowered
+    )
+    if not task_aware:
+        return False
+    return not _looks_like_fact_metadata_reason(reason)
+
+
+def _looks_like_fact_metadata_reason(reason: str) -> bool:
+    text = str(reason or "").strip()
+    return bool(re.match(r"^(推荐理由：)?(评分|约\s*\d+|位置在|类型是)", text))
 
 
 def _map_use_body(
