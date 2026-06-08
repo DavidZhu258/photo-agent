@@ -32,6 +32,7 @@ apps/ios-shell/capacitor.config.json
 
 # Local runtime logs, screenshots, and generated diagnostics
 logs/
+reports/
 *.log
 /*.png
 /*.jpg
