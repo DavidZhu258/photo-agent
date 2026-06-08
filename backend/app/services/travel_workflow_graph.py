@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from typing import Any, NotRequired, TypedDict
+from urllib.parse import quote_plus
 
 from langgraph.graph import END, START, StateGraph
 
@@ -196,13 +197,19 @@ def _build_graph():
 async def _orchestrate(state: TravelWorkflowState) -> dict[str, Any]:
     supervisor = state["supervisor"]
     request = state["request"]
-    contract = _enforce_required_orchestrator_tools(
-        _strip_inventory_only_place_tools(
-            await _call_travel_orchestrator(supervisor, request),
+    if _is_obvious_itinerary_request(request):
+        contract = _enforce_required_orchestrator_tools(
+            _obvious_itinerary_contract(request),
             request,
-        ),
-        request,
-    )
+        )
+    else:
+        contract = _enforce_required_orchestrator_tools(
+            _strip_inventory_only_place_tools(
+                await _call_travel_orchestrator(supervisor, request),
+                request,
+            ),
+            request,
+        )
     intent, search_plan, plan_draft = _planning_from_orchestrator_contract(contract, request)
     return _step_update(
         state,
@@ -813,6 +820,23 @@ def _enforce_required_orchestrator_tools(
 ) -> dict[str, Any]:
     existing_calls = _contract_tool_calls(contract)
     recommends_places = _contract_recommends_places(contract)
+    if contract.get("answer_mode") == "itinerary":
+        if any(call["name"] == "serper_places" for call in existing_calls):
+            return contract
+        updated = dict(contract)
+        updated["tool_calls_requested"] = [
+            {
+                "task_id": "serper_places_itinerary_1",
+                "name": "serper_places",
+                "arguments": {
+                    "query": _itinerary_discovery_query(request),
+                    "category": "本地体验",
+                    "max_results": 8,
+                },
+                "required": True,
+            }
+        ]
+        return updated
     if existing_calls:
         if not recommends_places:
             return contract
@@ -888,6 +912,79 @@ def _enforce_required_orchestrator_tools(
     return updated
 
 
+def _obvious_itinerary_contract(request: TravelPlanRequest) -> dict[str, Any]:
+    return {
+        "answer_mode": "itinerary",
+        "sections": [],
+        "tool_calls_requested": [
+            {
+                "task_id": "serper_places_itinerary_1",
+                "name": "serper_places",
+                "arguments": {
+                    "query": _itinerary_discovery_query(request),
+                    "category": "本地体验",
+                    "max_results": 8,
+                },
+                "required": True,
+            }
+        ],
+        "data_gaps": [],
+    }
+
+
+def _enforce_obvious_itinerary_contract(
+    contract: dict[str, Any],
+    request: TravelPlanRequest,
+) -> dict[str, Any]:
+    if not _is_obvious_itinerary_request(request):
+        return contract
+    return {**contract, **_obvious_itinerary_contract(request)}
+
+
+def _is_obvious_itinerary_request(request: TravelPlanRequest) -> bool:
+    text = _request_text(request).lower()
+    if not text:
+        return False
+    if any(token in text for token in ["是什么", "为什么", "安全吗", "签证", "天气", "weather", "visa"]):
+        return False
+    has_duration = bool(
+        re.search(r"\d+\s*(?:天|日|晚|day|days|night|nights)", text, flags=re.I)
+        or re.search(r"[一二两三四五六七八九十]\s*(?:天|日|晚)", text)
+    )
+    itinerary_terms = [
+        "行程",
+        "怎么排",
+        "怎麼排",
+        "怎么安排",
+        "怎麼安排",
+        "安排",
+        "路线",
+        "路線",
+        "怎么玩",
+        "怎麼玩",
+        "节奏",
+        "住宿只换",
+        "换一次",
+        "itinerary",
+        "trip plan",
+    ]
+    return has_duration and any(term in text for term in itinerary_terms)
+
+
+def _itinerary_discovery_query(request: TravelPlanRequest) -> str:
+    base = request.city.strip() or (request.query or request.question).strip()
+    days = _requested_day_count(request)
+    hints = [f"{days} 天行程" if days else "行程", "经典景点", "街区", "things to do", "attractions"]
+    text = _request_text(request).lower()
+    if "福冈" in text or "fukuoka" in text:
+        hints.extend(["博多", "天神", "太宰府", "大濠公园", "百道海滨", "福冈塔"])
+    if "京都" in text or "kyoto" in text:
+        hints.extend(["京都站", "祇园", "伏见稻荷"])
+    if "大阪" in text or "osaka" in text:
+        hints.extend(["梅田", "难波", "大阪城公园"])
+    return " ".join([base, *hints]).strip()
+
+
 def _strip_inventory_only_place_tools(
     contract: dict[str, Any],
     request: TravelPlanRequest,
@@ -911,6 +1008,25 @@ def _strip_inventory_only_place_tools(
 def _is_inventory_only_request(request: TravelPlanRequest) -> bool:
     text = _request_text(request).lower()
     inventory = any(token in text for token in ["酒店", "住宿", "hotel", "航班", "机票", "flight"])
+    itinerary_context = any(
+        token in text
+        for token in [
+            "行程",
+            "路线",
+            "怎么排",
+            "怎么安排",
+            "安排",
+            "几天",
+            "天怎么玩",
+            "换一次",
+            "换酒店",
+            "day",
+            "itinerary",
+            "plan",
+        ]
+    ) or bool(re.search(r"\d+\s*(?:天|日|day|days)", text, flags=re.I))
+    if itinerary_context:
+        return False
     place_result = any(
         token in text
         for token in ["景点", "餐厅", "公园", "吃", "玩", "购物", "路线", "行程", "itinerary", "restaurant", "attraction"]
@@ -1089,11 +1205,18 @@ def _deterministic_structured_card_contract(
     request: TravelPlanRequest,
     state: TravelWorkflowState,
 ) -> dict[str, Any] | None:
-    if initial_contract.get("answer_mode") != "place_cards":
+    answer_mode = initial_contract.get("answer_mode")
+    if answer_mode not in {"place_cards", "itinerary"}:
         return None
-    if not _place_items_from_payloads(state.get("api_payloads", {})):
+    places = _place_items_from_payloads(state.get("api_payloads", {}))
+    can_use_city_anchors = (
+        answer_mode == "itinerary"
+        and _is_obvious_itinerary_request(request)
+        and bool(_city_itinerary_anchor_specs(request))
+    )
+    if not places and not can_use_city_anchors:
         return None
-    if not _can_replace_initial_sections_with_card_summary(initial_contract):
+    if answer_mode == "place_cards" and not _can_replace_initial_sections_with_card_summary(initial_contract):
         return None
     answer_framework = _classified_answer_framework(request, state)
     contract = dict(initial_contract)
@@ -2481,7 +2604,14 @@ def _apply_orchestrator_contract(
     route_options = state.get("route_options", []) or _route_options_from_contract(contract)
     sections = _contract_sections(contract)
     if state.get("finalization_source") == "deterministic_structured_cards" and response.display_cards:
-        sections = _concise_sections_from_display_cards(state["request"], response)
+        if response.answer_mode == "itinerary":
+            sections = _itinerary_sections_from_plan(
+                state["request"],
+                response.itinerary_plan,
+                response.display_cards,
+            )
+        else:
+            sections = _concise_sections_from_display_cards(state["request"], response)
     if not sections and route_options:
         sections = _classified_sections_from_routes(state["request"], route_options)
     markdown = _sections_markdown(sections) or response.formatted_markdown or response.narrative_answer
@@ -2579,15 +2709,407 @@ def _attach_itinerary_plan(
     response: TravelPlanResponse,
     plan_draft: TripPlanDraft,
 ) -> TravelPlanResponse:
-    plan = _build_itinerary_plan(request, response.display_cards, plan_draft)
+    cards = _itinerary_display_cards_with_city_anchors(request, response.display_cards)
+    plan = _build_itinerary_plan(request, cards, plan_draft)
+    display_cards = _itinerary_primary_cards(cards, plan) or cards
     narrative = _itinerary_narrative(plan)
     return response.model_copy(
         update={
+            "display_cards": display_cards,
+            "map_view": _itinerary_map_view_from_cards(response, display_cards),
             "itinerary_plan": plan,
             "summary": narrative,
             "narrative_answer": narrative,
         }
     )
+
+
+def _itinerary_display_cards_with_city_anchors(
+    request: TravelPlanRequest,
+    cards: list[TravelDisplayCard],
+) -> list[TravelDisplayCard]:
+    days_count = _requested_day_count(request)
+    min_map_ready = min(max(days_count + 1, 4), 6) if days_count else 3
+    usable_cards = [
+        card
+        for card in cards
+        if _is_map_ready_card(card) or not _is_generic_itinerary_web_card(card)
+    ]
+    anchor_specs = _city_itinerary_anchor_specs(request)
+    if anchor_specs:
+        usable_cards = _prioritize_city_itinerary_anchor_cards(usable_cards, anchor_specs)
+    map_ready_count = sum(1 for card in usable_cards if _is_map_ready_card(card))
+    if map_ready_count >= min_map_ready:
+        return usable_cards
+
+    next_index = _next_card_index(usable_cards)
+    seen_titles = {_normalized_anchor_title(card.title) for card in usable_cards}
+    for anchor in anchor_specs:
+        if map_ready_count >= min_map_ready:
+            break
+        if _normalized_anchor_title(str(anchor["title"])) in seen_titles:
+            continue
+        card = _anchor_spec_to_display_card(anchor, next_index)
+        usable_cards.append(card)
+        seen_titles.add(_normalized_anchor_title(card.title))
+        next_index += 1
+        map_ready_count += 1
+    return usable_cards
+
+
+def _prioritize_city_itinerary_anchor_cards(
+    cards: list[TravelDisplayCard],
+    anchor_specs: list[dict[str, Any]],
+) -> list[TravelDisplayCard]:
+    prioritized: list[TravelDisplayCard] = []
+    used_ids: set[str] = set()
+    next_index = _next_card_index(cards)
+    for anchor in anchor_specs:
+        card = _matching_anchor_card(cards, anchor)
+        if card is None:
+            card = _anchor_spec_to_display_card(anchor, next_index)
+            next_index += 1
+        prioritized.append(card)
+        used_ids.add(card.id)
+    for card in cards:
+        if card.id not in used_ids:
+            prioritized.append(card)
+    return prioritized
+
+
+def _matching_anchor_card(
+    cards: list[TravelDisplayCard],
+    anchor: dict[str, Any],
+) -> TravelDisplayCard | None:
+    for card in cards:
+        if _card_matches_anchor(card, anchor):
+            return card
+    return None
+
+
+def _card_matches_anchor(card: TravelDisplayCard, anchor: dict[str, Any]) -> bool:
+    title = _normalized_anchor_title(card.title)
+    combined = _normalized_anchor_title(" ".join([card.title, card.subcategory]))
+    anchor_title = _normalized_anchor_title(str(anchor.get("title") or ""))
+    if anchor_title and (anchor_title in combined or title in anchor_title):
+        return True
+    for alias in _anchor_title_aliases(str(anchor.get("title") or "")):
+        if alias in combined:
+            return True
+    if card.lat is None or card.lng is None or anchor.get("lat") is None or anchor.get("lng") is None:
+        return False
+    return abs(float(card.lat) - float(anchor["lat"])) <= 0.004 and abs(float(card.lng) - float(anchor["lng"])) <= 0.004
+
+
+def _anchor_title_aliases(title: str) -> list[str]:
+    normalized = _normalized_anchor_title(title)
+    aliases = {
+        "博多舊市街": ["hakata old town", "博多舊市街", "博多旧市街"],
+        "天神": ["tenjin", "天神"],
+        "太宰府天満宮": ["dazaifu", "太宰府", "太宰府天満宮", "太宰府天满宫"],
+        "大濠公園": ["ohori", "大濠", "大濠公園", "大濠公园"],
+        "百道海濱": ["momochi", "momochihama", "百道", "百道海濱", "百道海滨", "fukuoka tower", "福岡塔", "福冈塔"],
+        "京都站": ["kyoto station", "京都站", "京都駅"],
+        "祇園": ["gion", "祇園", "祇园"],
+        "伏見稻荷大社": ["fushimi inari", "伏見稻荷", "伏见稻荷"],
+        "梅田": ["umeda", "梅田"],
+        "難波": ["namba", "難波", "难波"],
+    }
+    return aliases.get(normalized, [normalized])
+
+
+def _is_map_ready_card(card: TravelDisplayCard) -> bool:
+    return card.lat is not None and card.lng is not None
+
+
+def _is_generic_itinerary_web_card(card: TravelDisplayCard) -> bool:
+    if _is_map_ready_card(card):
+        return False
+    text = _normalized_anchor_title(" ".join([card.title, card.description, card.source_provider, card.source_url]))
+    markers = [
+        "kkday",
+        "自由行推薦",
+        "自由行推荐",
+        "旅遊行程",
+        "旅游行程",
+        "搜尋的關鍵字",
+        "搜索的关键字",
+        "search result",
+        "best things to do",
+        "things to do in",
+        "travel guide",
+        "guide",
+        "blog",
+        "listicle",
+    ]
+    return card.source_provider == "search" or any(marker in text for marker in markers)
+
+
+def _city_itinerary_anchor_specs(request: TravelPlanRequest) -> list[dict[str, Any]]:
+    text = _request_text(request).lower()
+    if "福冈" in text or "福岡" in text or "fukuoka" in text:
+        return [
+            {
+                "title": "博多旧市街",
+                "subcategory": "历史街区",
+                "description": "博多站和祇园一带容易抵达，适合第1天用低强度方式熟悉城市。",
+                "address": "Hakata Ward, Fukuoka",
+                "lat": 33.5952,
+                "lng": 130.4144,
+            },
+            {
+                "title": "天神",
+                "subcategory": "商业街区",
+                "description": "餐饮、购物和屋台都集中，适合作为抵达日傍晚或晚餐后的轻松区域。",
+                "address": "Tenjin, Chuo Ward, Fukuoka",
+                "lat": 33.5904,
+                "lng": 130.3989,
+            },
+            {
+                "title": "太宰府天满宫",
+                "subcategory": "神社",
+                "description": "福冈经典近郊半日点，适合单独安排，不要和海边硬塞在一起。",
+                "address": "4 Chome-7-1 Saifu, Dazaifu",
+                "lat": 33.5214,
+                "lng": 130.5348,
+            },
+            {
+                "title": "大濠公园",
+                "subcategory": "公园",
+                "description": "市内湖边公园，适合太宰府回城后散步，也适合低强度缓冲。",
+                "address": "Ohorikoen, Chuo Ward, Fukuoka",
+                "lat": 33.5869,
+                "lng": 130.3796,
+            },
+            {
+                "title": "百道海滨",
+                "subcategory": "海滨",
+                "description": "海边、福冈塔和开阔景观集中，适合第3天做轻松半日并留离境缓冲。",
+                "address": "Momochihama, Sawara Ward, Fukuoka",
+                "lat": 33.5934,
+                "lng": 130.3515,
+            },
+        ]
+    if ("京都" in text or "kyoto" in text) and ("大阪" in text or "osaka" in text):
+        return [
+            {
+                "title": "京都站",
+                "subcategory": "交通枢纽",
+                "description": "京都段住宿和换乘锚点，适合前两晚住京都。",
+                "address": "Kyoto Station, Kyoto",
+                "lat": 34.9858,
+                "lng": 135.7588,
+            },
+            {
+                "title": "祇园",
+                "subcategory": "历史街区",
+                "description": "京都东山夜间散步方便，适合京都段的一晚。",
+                "address": "Gion, Kyoto",
+                "lat": 35.0037,
+                "lng": 135.7751,
+            },
+            {
+                "title": "伏见稻荷大社",
+                "subcategory": "神社",
+                "description": "适合京都段早去，之后移动到大阪比较顺。",
+                "address": "Fushimi Ward, Kyoto",
+                "lat": 34.9671,
+                "lng": 135.7727,
+            },
+            {
+                "title": "梅田",
+                "subcategory": "商业交通区",
+                "description": "大阪交通和住宿方便，适合最后一晚住大阪。",
+                "address": "Umeda, Osaka",
+                "lat": 34.7025,
+                "lng": 135.4959,
+            },
+            {
+                "title": "难波",
+                "subcategory": "街区",
+                "description": "大阪餐饮和夜间活动集中，适合作为大阪段主区域。",
+                "address": "Namba, Osaka",
+                "lat": 34.6658,
+                "lng": 135.5011,
+            },
+        ]
+    return []
+
+
+def _anchor_spec_to_display_card(spec: dict[str, Any], index: int) -> TravelDisplayCard:
+    title = str(spec["title"])
+    address = str(spec.get("address") or "")
+    lat = float(spec["lat"])
+    lng = float(spec["lng"])
+    maps_query = quote_plus(" ".join(part for part in [title, address] if part))
+    directions_query = maps_query
+    return TravelDisplayCard(
+        id=f"card-{index}",
+        title=title,
+        category="本地体验",
+        subcategory=str(spec.get("subcategory") or ""),
+        description=str(spec.get("description") or ""),
+        address=address,
+        image_status="missing",
+        source_provider="itinerary_anchor",
+        reason=str(spec.get("description") or ""),
+        display_reason=str(spec.get("description") or ""),
+        lat=lat,
+        lng=lng,
+        tags=["本地体验"],
+        google_maps_uri=f"https://www.google.com/maps/search/?api=1&query={maps_query}",
+        directions_uri=f"https://www.google.com/maps/dir/?api=1&destination={directions_query}",
+    )
+
+
+def _next_card_index(cards: list[TravelDisplayCard]) -> int:
+    max_index = 0
+    for card in cards:
+        match = re.search(r"(\d+)$", card.id)
+        if match:
+            max_index = max(max_index, int(match.group(1)))
+    return max_index + 1
+
+
+def _normalized_anchor_title(value: str) -> str:
+    normalized = value.lower().translate(str.maketrans({"冈": "岡", "满": "満", "旧": "舊", "区": "區"}))
+    return re.sub(r"\s+", " ", normalized).strip()
+
+
+def _itinerary_map_view_from_cards(
+    response: TravelPlanResponse,
+    cards: list[TravelDisplayCard],
+) -> dict[str, Any]:
+    pins = [
+        {
+            "id": card.id,
+            "title": card.title,
+            "category": card.category,
+            "subcategory": card.subcategory,
+            "lat": card.lat,
+            "lng": card.lng,
+            "rating": card.rating,
+            "address": card.address,
+            "place_id": card.place_id,
+            "trip_state": card.trip_state,
+            "google_maps_uri": card.google_maps_uri,
+            "directions_uri": card.directions_uri,
+        }
+        for card in cards
+        if _is_map_ready_card(card)
+    ]
+    if not pins:
+        return {**dict(response.map_view or {}), "pins": [], "status": "needs_coordinates"}
+    center = {
+        "lat": sum(float(pin["lat"]) for pin in pins) / len(pins),
+        "lng": sum(float(pin["lng"]) for pin in pins) / len(pins),
+    }
+    return {
+        "provider": "mapbox",
+        "mode": "mapbox_gl",
+        "center": center,
+        "selected_pin_id": pins[0]["id"],
+        "status": "ready",
+        "pins": pins,
+    }
+
+
+def _itinerary_primary_cards(
+    cards: list[TravelDisplayCard],
+    plan: TravelItineraryPlan,
+) -> list[TravelDisplayCard]:
+    planned_ids: list[str] = []
+    for day in plan.days:
+        for block in day.time_blocks:
+            planned_ids.extend(str(place_id) for place_id in block.place_ids if str(place_id).strip())
+    if not planned_ids:
+        return []
+    by_id = {card.id: card for card in cards}
+    primary: list[TravelDisplayCard] = []
+    seen: set[str] = set()
+    for card_id in planned_ids:
+        card = by_id.get(card_id)
+        if card is not None and card.id not in seen:
+            primary.append(card)
+            seen.add(card.id)
+    return primary
+
+
+def _itinerary_sections_from_plan(
+    request: TravelPlanRequest,
+    plan: TravelItineraryPlan,
+    cards: list[TravelDisplayCard],
+) -> list[dict[str, Any]]:
+    if not plan.days:
+        return []
+    city_plan_note = _itinerary_city_plan_note(request, cards)
+    day_bullets = [_itinerary_day_bullet(day) for day in plan.days]
+    route_bullets = [
+        city_plan_note,
+        "地图卡片用来核对每一天的区域关系：同区就串联，跨区就拆到不同半日，别为了多打卡把节奏排满。",
+        "如果天气、体力或抵达时间变化，优先保留当天主区域，删掉最远的补充点。",
+    ]
+    card_ids = [card.id for card in cards[:6] if card.id]
+    return [
+        {
+            "id": "itinerary-days",
+            "title": "逐日安排",
+            "body": f"{_itinerary_duration_label(plan)}安排：{plan.summary or '先按区域和节奏拆成逐日路线。'}",
+            "bullets": day_bullets,
+            "card_ids": card_ids,
+            "pin_ids": card_ids,
+        },
+        {
+            "id": "itinerary-route-map",
+            "title": "住宿/动线",
+            "body": "这份安排优先减少折返和换区压力，卡片与地图负责支撑地点选择。",
+            "bullets": route_bullets,
+            "card_ids": card_ids[:4],
+            "pin_ids": card_ids[:4],
+        },
+    ]
+
+
+def _itinerary_duration_label(plan: TravelItineraryPlan) -> str:
+    labels = {
+        1: "一天",
+        2: "两天",
+        3: "三天",
+        4: "四天",
+        5: "五天",
+        6: "六天",
+        7: "七天",
+    }
+    return labels.get(len(plan.days), f"{len(plan.days)} 天") if plan.days else "逐日"
+
+
+def _itinerary_day_bullet(day: TravelItineraryDay) -> str:
+    block_titles = [
+        re.sub(r"^(上午|下午|傍晚|晚上|中午|早上)：", "", block.title).strip()
+        for block in day.time_blocks
+        if str(block.title or "").strip()
+    ]
+    names = " → ".join(block_titles[:3]) or "保留一个主区域慢慢走"
+    notes = [
+        block.route_note
+        for block in day.time_blocks
+        if str(block.route_note or "").strip()
+    ]
+    note = _compact_sentence(notes[0], limit=52) if notes else "按相邻区域安排，减少折返。"
+    return f"第{day.day}天：{names}；{note}"
+
+
+def _itinerary_city_plan_note(request: TravelPlanRequest, cards: list[TravelDisplayCard]) -> str:
+    text = _request_text(request).lower()
+    titles = " ".join(card.title for card in cards)
+    combined = f"{text} {titles}".lower()
+    if ("京都" in combined or "kyoto" in combined) and ("大阪" in combined or "osaka" in combined):
+        return "住宿建议：前两晚住京都，第3天早上或中午移动到大阪，最后一晚住大阪；这样只换一次酒店，也能把两座城市分组玩。"
+    if "福冈" in combined or "fukuoka" in combined:
+        return "节奏建议：第1天放博多/天神熟悉城市，第2天做太宰府半日加回城市内散步，第3天放百道海滨或福冈塔，留离境缓冲。"
+    if "低预算" in combined or "预算" in combined or "budget" in combined:
+        return "低预算建议：每天只安排 0–1 个付费主项目，其余用公园、街区、市场和小吃补足体验。"
+    return "动线建议：每天只设一个主区域，补一个同区备选，优先公共交通顺路而不是高分点堆叠。"
 
 
 def _build_itinerary_plan(
@@ -2610,8 +3132,7 @@ def _build_itinerary_plan(
     slot_names = ["上午", "下午", "傍晚"]
     days: list[TravelItineraryDay] = []
     for day_index in range(days_count):
-        start = day_index * 3
-        day_cards = source_cards[start : start + 3] or source_cards[: min(3, len(source_cards))]
+        day_cards = _itinerary_cards_for_day(source_cards, day_index, days_count, request)
         blocks: list[TravelItineraryBlock] = []
         for slot_index, card in enumerate(day_cards):
             blocks.append(
@@ -2658,6 +3179,56 @@ def _build_itinerary_plan(
         days=days,
         assumptions=assumptions,
     )
+
+
+def _itinerary_cards_for_day(
+    source_cards: list[TravelDisplayCard],
+    day_index: int,
+    days_count: int,
+    request: TravelPlanRequest,
+) -> list[TravelDisplayCard]:
+    if not source_cards:
+        return []
+    city_cards = _city_itinerary_cards_for_day(source_cards, day_index, days_count, request)
+    if city_cards:
+        return city_cards
+    if days_count <= 1:
+        return source_cards[:3]
+    start = day_index * len(source_cards) // days_count
+    end = (day_index + 1) * len(source_cards) // days_count
+    if end <= start:
+        end = start + 1
+    return source_cards[start:end][:3] or source_cards[: min(3, len(source_cards))]
+
+
+def _city_itinerary_cards_for_day(
+    source_cards: list[TravelDisplayCard],
+    day_index: int,
+    days_count: int,
+    request: TravelPlanRequest,
+) -> list[TravelDisplayCard]:
+    text = _request_text(request).lower()
+    if days_count == 3 and ("福冈" in text or "福岡" in text or "fukuoka" in text):
+        day_keywords = [
+            ["博多旧市街", "博多舊市街", "hakata old town", "天神", "tenjin"],
+            ["太宰府", "dazaifu", "大濠", "ohori"],
+            ["百道", "momochi", "momochihama", "fukuoka tower", "福冈塔", "福岡塔"],
+        ]
+        return _cards_matching_itinerary_keywords(source_cards, day_keywords[day_index])[:3]
+    return []
+
+
+def _cards_matching_itinerary_keywords(
+    cards: list[TravelDisplayCard],
+    keywords: list[str],
+) -> list[TravelDisplayCard]:
+    normalized_keywords = [_normalized_anchor_title(keyword) for keyword in keywords]
+    matched: list[TravelDisplayCard] = []
+    for card in cards:
+        text = _normalized_anchor_title(" ".join([card.title, card.address, card.subcategory]))
+        if any(keyword and keyword in text for keyword in normalized_keywords):
+            matched.append(card)
+    return matched
 
 
 def _requested_day_count(request: TravelPlanRequest) -> int:
@@ -3066,7 +3637,7 @@ async def _tool_serper_places(
     method = getattr(client, "search_local", None)
     if not callable(method):
         raise RuntimeError("serper places unavailable")
-    return f"local:{category}", await method(request, query)
+    return f"local:{category}", await method(request, category)
 
 
 async def _tool_serper_images(supervisor: Any, request: TravelPlanRequest, args: dict[str, Any]) -> list[dict[str, Any]]:

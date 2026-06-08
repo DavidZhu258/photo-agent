@@ -451,6 +451,10 @@ test("itinerary plan text is shown before generic recommendation copy", () => {
   expect(text).toContain("福冈 2 天自由行");
   expect(text).toContain("第1天：市区轻松游");
   expect(text).toContain("上午：大濠公园");
+  expect(text).toContain("先从市区公园开始。");
+  expect(text).not.toContain("免费为主。");
+  expect(text).not.toContain("低成本、节奏轻。");
+  expect(text).not.toContain("可补充信息：");
   expect(text).not.toContain("旧的泛推荐文案");
 });
 

@@ -1204,6 +1204,539 @@ class FukuokaFirstTimerSerperClient(MinimalSerperClient):
         )
 
 
+class FukuokaThreeDaySerperClient(MinimalSerperClient):
+    async def search_local(self, request: TravelPlanRequest, category: str) -> list[dict]:
+        return await self._record(
+            f"serper_places:{category}",
+            [
+                {
+                    "title": "博多旧市街",
+                    "snippet": "博多站和祇园一带容易抵达，适合第一天用低强度方式熟悉城市。",
+                    "type": "历史街区",
+                    "rating": 4.3,
+                    "reviews": 2100,
+                    "address": "Hakata Ward, Fukuoka",
+                    "latitude": 33.5952,
+                    "longitude": 130.4144,
+                    "place_id": "hakata-old-town-3day",
+                    "query_variant": category,
+                },
+                {
+                    "title": "天神",
+                    "snippet": "商场、餐饮和屋台集中，适合作为抵达日傍晚的轻松区域。",
+                    "type": "商业街区",
+                    "rating": 4.2,
+                    "reviews": 8800,
+                    "address": "Tenjin, Chuo Ward, Fukuoka",
+                    "latitude": 33.5904,
+                    "longitude": 130.3989,
+                    "place_id": "tenjin-3day",
+                    "query_variant": category,
+                },
+                {
+                    "title": "太宰府天满宫",
+                    "snippet": "福冈经典近郊点，适合单独安排半天，不要和海边硬塞在一起。",
+                    "type": "神社",
+                    "rating": 4.5,
+                    "reviews": 18000,
+                    "address": "4 Chome-7-1 Saifu, Dazaifu",
+                    "latitude": 33.5214,
+                    "longitude": 130.5348,
+                    "place_id": "dazaifu-3day",
+                    "query_variant": category,
+                },
+                {
+                    "title": "大濠公园",
+                    "snippet": "市内湖边公园，适合太宰府回城后散步，不必单独耗掉一整天。",
+                    "type": "公园",
+                    "rating": 4.5,
+                    "reviews": 9400,
+                    "address": "Ohorikoen, Chuo Ward, Fukuoka",
+                    "latitude": 33.5869,
+                    "longitude": 130.3796,
+                    "place_id": "ohori-3day",
+                    "query_variant": category,
+                },
+                {
+                    "title": "百道海滨",
+                    "snippet": "海边、福冈塔和开阔景观集中，适合第三天做轻松半日。",
+                    "type": "海滨",
+                    "rating": 4.4,
+                    "reviews": 5200,
+                    "address": "Momochihama, Sawara Ward, Fukuoka",
+                    "latitude": 33.5934,
+                    "longitude": 130.3515,
+                    "place_id": "momochihama-3day",
+                    "query_variant": category,
+                },
+            ],
+        )
+
+
+class FukuokaSparseItinerarySerperClient(MinimalSerperClient):
+    async def search_local(self, request: TravelPlanRequest, category: str) -> list[dict]:
+        return await self._record(
+            f"serper_places:{category}",
+            [
+                {
+                    "title": "九州福岡自由行推薦！福岡旅遊行程/景點交通整理 - KKday",
+                    "snippet": "A travel blog/listing page, not a map-ready place.",
+                    "type": "Search result",
+                    "link": "https://example.com/fukuoka-itinerary",
+                    "query_variant": category,
+                    "serper_endpoint": "search",
+                },
+                {
+                    "title": "3小時遊覽！福岡市內觀光初體驗天神地區推薦路線",
+                    "snippet": "Another generic route article with no coordinates.",
+                    "type": "Search result",
+                    "link": "https://example.com/tenjin-route",
+                    "query_variant": category,
+                    "serper_endpoint": "search",
+                },
+                {
+                    "title": "太宰府天满宫",
+                    "snippet": "适合半日小旅行：参道小吃和神社氛围完整。",
+                    "type": "神社",
+                    "rating": 4.5,
+                    "address": "4 Chome-7-1 Saifu, Dazaifu",
+                    "latitude": 33.5214,
+                    "longitude": 130.5348,
+                    "place_id": "dazaifu-sparse",
+                    "query_variant": category,
+                    "serper_endpoint": "places",
+                },
+            ],
+        )
+
+
+class EmptyFukuokaItinerarySerperClient(MinimalSerperClient):
+    async def search_local(self, request: TravelPlanRequest, category: str) -> list[dict]:
+        return await self._record(f"serper_places:{category}", [])
+
+
+class FukuokaMixedOrderItinerarySerperClient(MinimalSerperClient):
+    async def search_local(self, request: TravelPlanRequest, category: str) -> list[dict]:
+        return await self._record(
+            f"serper_places:{category}",
+            [
+                {
+                    "title": "Momochihama Beach",
+                    "snippet": "适合海滨轻松半日，建议和福冈塔/百道海滨同区安排。",
+                    "type": "海滨",
+                    "rating": 4.8,
+                    "reviews": 9000,
+                    "address": "Momochihama, Sawara Ward, Fukuoka",
+                    "latitude": 33.5934,
+                    "longitude": 130.3515,
+                    "place_id": "momochihama-online-order",
+                    "query_variant": category,
+                },
+                {
+                    "title": "大濠公园",
+                    "snippet": "市内湖边公园，适合回城后散步。",
+                    "type": "公园",
+                    "rating": 4.7,
+                    "reviews": 8000,
+                    "address": "Ohorikoen, Chuo Ward, Fukuoka",
+                    "latitude": 33.5869,
+                    "longitude": 130.3796,
+                    "place_id": "ohori-online-order",
+                    "query_variant": category,
+                },
+                {
+                    "title": "海之中道海滨公园",
+                    "snippet": "海边公园，范围大，适合作为备选而不是初访三天主轴。",
+                    "type": "海滨公园",
+                    "rating": 4.6,
+                    "reviews": 7200,
+                    "address": "Saitozaki, Higashi Ward, Fukuoka",
+                    "latitude": 33.6642,
+                    "longitude": 130.3639,
+                    "place_id": "uminonakamichi-online-order",
+                    "query_variant": category,
+                },
+                {
+                    "title": "太宰府天满宫",
+                    "snippet": "适合半日小旅行：参道小吃和神社氛围完整，建议单独排半天。",
+                    "type": "神社",
+                    "rating": 4.5,
+                    "reviews": 18000,
+                    "address": "4 Chome-7-1 Saifu, Dazaifu",
+                    "latitude": 33.5214,
+                    "longitude": 130.5348,
+                    "place_id": "dazaifu-online-order",
+                    "query_variant": category,
+                },
+                {
+                    "title": "Fukuoka Tower",
+                    "snippet": "百道海滨同区，适合第三天轻松半日。",
+                    "type": "展望塔",
+                    "rating": 4.4,
+                    "reviews": 12000,
+                    "address": "2 Chome-3-26 Momochihama, Sawara Ward, Fukuoka",
+                    "latitude": 33.5933,
+                    "longitude": 130.3515,
+                    "place_id": "fukuoka-tower-online-order",
+                    "query_variant": category,
+                },
+                {
+                    "title": "博多港塔",
+                    "snippet": "适合作为城市方位感第一站，天气差时降级为备选。",
+                    "type": "展望塔",
+                    "rating": 4.1,
+                    "reviews": 2800,
+                    "address": "14-1 Chikkohonmachi, Hakata Ward, Fukuoka",
+                    "latitude": 33.6072,
+                    "longitude": 130.4022,
+                    "place_id": "hakata-port-tower-online-order",
+                    "query_variant": category,
+                },
+                {
+                    "title": "博多运河城",
+                    "snippet": "适合作为晚间或雨天补充，吃饭购物和回酒店都方便。",
+                    "type": "商业设施",
+                    "rating": 4.0,
+                    "reviews": 15000,
+                    "address": "1 Chome-2 Sumiyoshi, Hakata Ward, Fukuoka",
+                    "latitude": 33.5898,
+                    "longitude": 130.4112,
+                    "place_id": "canal-city-online-order",
+                    "query_variant": category,
+                },
+                {
+                    "title": "Momochi Seaside Park",
+                    "snippet": "百道海滨同区，适合留作离境前轻松缓冲。",
+                    "type": "海滨",
+                    "rating": 4.0,
+                    "reviews": 4000,
+                    "address": "Momochihama, Sawara Ward, Fukuoka",
+                    "latitude": 33.5928,
+                    "longitude": 130.3507,
+                    "place_id": "momochi-seaside-online-order",
+                    "query_variant": category,
+                },
+            ],
+        )
+
+
+@pytest.mark.asyncio
+async def test_fukuoka_three_day_itinerary_uses_deterministic_day_by_day_plan():
+    class FukuokaThreeDayAgentClient(OrchestratorAgentClient):
+        async def run_agent(self, *, agent_name: str, model: str, prompt: str, payload: dict) -> dict:
+            if agent_name == "travel_orchestrator" and not payload.get("phase"):
+                self.calls.append({"agent_name": agent_name, "model": model, "prompt": prompt, "payload": payload})
+                return {
+                    "answer_mode": "itinerary",
+                    "sections": [{"title": "三天安排", "body": "福冈三天要轻松一点，按博多/天神、太宰府、市内海边拆。"}],
+                    "tool_calls_requested": [
+                        {
+                            "name": "serper_places",
+                            "arguments": {"query": "福冈 三天 轻松 行程 博多 天神 太宰府 百道", "category": "本地体验"},
+                            "required": True,
+                        }
+                    ],
+                    "data_gaps": [],
+                }
+            if payload.get("phase") == "final_answer":
+                raise AssertionError("3-day itinerary should be finalized deterministically")
+            return await super().run_agent(agent_name=agent_name, model=model, prompt=prompt, payload=payload)
+
+    agent_client = FukuokaThreeDayAgentClient()
+    response = await _supervisor(agent_client, FukuokaThreeDaySerperClient()).plan(
+        TravelPlanRequest(city="Fukuoka", query="第一次去福冈，三天怎么安排轻松一点？", pace="relaxed", allow_web_search=True)
+    )
+
+    markdown = response.formatted_markdown
+    assert response.answer_mode == "itinerary"
+    assert response.raw_provider_refs["travel_orchestrator"]["finalization"] == "deterministic_structured_cards"
+    assert "第1天" in markdown and "第2天" in markdown and "第3天" in markdown
+    assert "博多" in markdown and "天神" in markdown
+    assert "太宰府" in markdown
+    assert "百道" in markdown or "福冈塔" in markdown or "海滨" in markdown
+    assert "轻松" in markdown or "低强度" in markdown or "缓冲" in markdown
+    assert "同区" in markdown or "回城" in markdown or "西铁" in markdown or "地铁" in markdown
+    assert "河豚" not in markdown
+    assert "安全" not in markdown
+    assert len(response.itinerary_plan.days) == 3
+    assert not any(call["payload"].get("phase") == "final_answer" for call in agent_client.calls)
+
+
+@pytest.mark.asyncio
+async def test_obvious_itinerary_places_tool_passes_category_not_long_query_to_search_local():
+    class RecordingSerperClient(FukuokaThreeDaySerperClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.categories_seen: list[str] = []
+
+        async def search_local(self, request: TravelPlanRequest, category: str) -> list[dict]:
+            self.categories_seen.append(category)
+            return await super().search_local(request, category)
+
+    serper = RecordingSerperClient()
+    await _supervisor(OrchestratorAgentClient(), serper).plan(
+        TravelPlanRequest(
+            city="Fukuoka",
+            query="帮我做一个福冈 3 天 2 晚初访行程，节奏不要太赶。",
+            pace="relaxed",
+            allow_web_search=True,
+        )
+    )
+
+    assert serper.categories_seen == ["本地体验"]
+
+
+@pytest.mark.asyncio
+async def test_obvious_three_day_itinerary_overrides_misclassified_food_contract():
+    class MisclassifiedFoodAgentClient(OrchestratorAgentClient):
+        async def run_agent(self, *, agent_name: str, model: str, prompt: str, payload: dict) -> dict:
+            if agent_name == "travel_orchestrator" and payload.get("phase") == "final_answer":
+                raise AssertionError("obvious itinerary should be finalized deterministically")
+            return await super().run_agent(agent_name=agent_name, model=model, prompt=prompt, payload=payload)
+
+    agent_client = MisclassifiedFoodAgentClient()
+    serper = FukuokaThreeDaySerperClient()
+    response = await _supervisor(agent_client, serper).plan(
+        TravelPlanRequest(
+            city="Fukuoka",
+            query="帮我做一个福冈 3 天 2 晚初访行程，节奏不要太赶。",
+            pace="relaxed",
+            allow_web_search=True,
+        )
+    )
+
+    markdown = response.formatted_markdown
+    assert response.answer_mode == "itinerary"
+    assert response.raw_provider_refs["travel_orchestrator"]["finalization"] == "deterministic_structured_cards"
+    assert all(f"第{day}天" in markdown for day in range(1, 4))
+    assert "博多" in markdown and "天神" in markdown
+    assert "太宰府" in markdown
+    assert "百道" in markdown or "福冈塔" in markdown or "海滨" in markdown
+    assert "河豚" not in markdown
+    assert "餐厅" not in markdown
+    assert len(response.itinerary_plan.days) == 3
+    assert not any(
+        call["agent_name"] == "travel_orchestrator" and not call["payload"].get("phase")
+        for call in agent_client.calls
+    )
+    assert not any(call["payload"].get("phase") == "final_answer" for call in agent_client.calls)
+    assert any(call.startswith("serper_places:") for call in serper.calls)
+    requested_tools = response.raw_provider_refs["travel_orchestrator"]["tool_calls_requested"]
+    places_call = next(call for call in requested_tools if call["name"] == "serper_places")
+    assert places_call["arguments"]["category"] == "本地体验"
+    assert "行程" in places_call["arguments"]["query"]
+
+
+@pytest.mark.asyncio
+async def test_empty_obvious_fukuoka_itinerary_uses_city_anchors_without_final_model():
+    class NoModelFinalAgentClient(OrchestratorAgentClient):
+        async def run_agent(self, *, agent_name: str, model: str, prompt: str, payload: dict) -> dict:
+            if agent_name == "travel_orchestrator":
+                raise AssertionError("obvious city itinerary should not call GPT orchestrator or final synthesis")
+            return await super().run_agent(agent_name=agent_name, model=model, prompt=prompt, payload=payload)
+
+    agent_client = NoModelFinalAgentClient()
+    serper = EmptyFukuokaItinerarySerperClient()
+    response = await _supervisor(agent_client, serper).plan(
+        TravelPlanRequest(
+            city="Fukuoka",
+            query="帮我做一个福冈 3 天 2 晚初访行程，节奏不要太赶。",
+            pace="relaxed",
+            allow_web_search=True,
+        )
+    )
+
+    titles = [card.title for card in response.display_cards]
+    assert response.answer_mode == "itinerary"
+    assert response.raw_provider_refs["travel_orchestrator"]["finalization"] == "deterministic_structured_cards"
+    assert agent_client.calls == []
+    assert any(call.startswith("serper_places:") for call in serper.calls)
+    assert len(response.itinerary_plan.days) == 3
+    assert len(response.display_cards) >= 5
+    assert len(response.map_view["pins"]) >= 5
+    assert titles[:5] == ["博多旧市街", "天神", "太宰府天满宫", "大濠公园", "百道海滨"]
+    assert "第1天" in response.formatted_markdown and "第3天" in response.formatted_markdown
+    assert "河豚" not in response.formatted_markdown and "KKday" not in response.formatted_markdown
+
+
+@pytest.mark.asyncio
+async def test_sparse_itinerary_places_are_completed_with_map_ready_city_anchors():
+    class MisclassifiedFoodAgentClient(OrchestratorAgentClient):
+        async def run_agent(self, *, agent_name: str, model: str, prompt: str, payload: dict) -> dict:
+            if agent_name == "travel_orchestrator" and payload.get("phase") == "final_answer":
+                raise AssertionError("sparse obvious itinerary should be finalized deterministically")
+            return await super().run_agent(agent_name=agent_name, model=model, prompt=prompt, payload=payload)
+
+    response = await _supervisor(MisclassifiedFoodAgentClient(), FukuokaSparseItinerarySerperClient()).plan(
+        TravelPlanRequest(
+            city="Fukuoka",
+            query="帮我做一个福冈 3 天 2 晚初访行程，节奏不要太赶。",
+            pace="relaxed",
+            allow_web_search=True,
+        )
+    )
+
+    titles = [card.title for card in response.display_cards]
+    markdown = response.formatted_markdown
+    assert response.answer_mode == "itinerary"
+    assert response.map_view["status"] == "ready"
+    assert len(response.map_view["pins"]) >= 3
+    assert len(response.display_cards) >= 3
+    assert "太宰府天满宫" in titles
+    assert "博多旧市街" in titles or "博多" in markdown
+    assert "天神" in titles or "天神" in markdown
+    assert "百道海滨" in titles or "大濠公园" in titles or "福冈塔" in titles
+    assert "KKday" not in markdown
+    assert "搜尋的關鍵字" not in markdown
+    assert len({block.title for day in response.itinerary_plan.days for block in day.time_blocks}) >= 3
+
+
+@pytest.mark.asyncio
+async def test_fukuoka_three_day_itinerary_reorders_map_ready_cards_into_city_skeleton():
+    class MisclassifiedFoodAgentClient(OrchestratorAgentClient):
+        async def run_agent(self, *, agent_name: str, model: str, prompt: str, payload: dict) -> dict:
+            if agent_name == "travel_orchestrator" and payload.get("phase") == "final_answer":
+                raise AssertionError("obvious itinerary should keep deterministic finalization even with many cards")
+            return await super().run_agent(agent_name=agent_name, model=model, prompt=prompt, payload=payload)
+
+    response = await _supervisor(MisclassifiedFoodAgentClient(), FukuokaMixedOrderItinerarySerperClient()).plan(
+        TravelPlanRequest(
+            city="Fukuoka",
+            query="帮我做一个福冈 3 天 2 晚初访行程，节奏不要太赶。",
+            pace="relaxed",
+            allow_web_search=True,
+        )
+    )
+
+    day_titles = [
+        [re.sub(r"^(上午|下午|傍晚)：", "", block.title) for block in day.time_blocks]
+        for day in response.itinerary_plan.days
+    ]
+    markdown = response.formatted_markdown
+    assert response.answer_mode == "itinerary"
+    assert len(response.map_view["pins"]) >= 5
+    assert len(response.itinerary_plan.days) == 3
+    assert any("博多" in title for title in day_titles[0])
+    assert any("天神" in title for title in day_titles[0])
+    assert any("太宰府" in title for title in day_titles[1])
+    assert any("大濠" in title for title in day_titles[1])
+    assert any(("百道" in title or "Fukuoka Tower" in title or "福冈塔" in title or "Momochi" in title) for title in day_titles[2])
+    assert not any("太宰府" in title for title in day_titles[0] + day_titles[2])
+    assert not any("海之中道" in title for day in day_titles for title in day)
+    assert not any("海之中道" in card.title for card in response.display_cards)
+    assert not any("海之中道" in str(pin.get("title") or "") for pin in response.map_view["pins"])
+    assert "第1天" in markdown and "第2天" in markdown and "第3天" in markdown
+    assert "河豚" not in markdown and "KKday" not in markdown
+    assert "Haystack" not in markdown and "PydanticAI" not in markdown and "Langfuse" not in markdown
+
+
+class KyotoOsakaFourDaySerperClient(MinimalSerperClient):
+    async def search_local(self, request: TravelPlanRequest, category: str) -> list[dict]:
+        return await self._record(
+            f"serper_places:{category}",
+            [
+                {
+                    "title": "京都站",
+                    "snippet": "京都住宿和换乘的稳定锚点，适合前两晚住京都。",
+                    "type": "交通枢纽",
+                    "rating": 4.3,
+                    "reviews": 20000,
+                    "address": "Kyoto Station, Kyoto",
+                    "latitude": 34.9858,
+                    "longitude": 135.7588,
+                    "place_id": "kyoto-station-4day",
+                    "query_variant": category,
+                },
+                {
+                    "title": "祇园",
+                    "snippet": "京都东山夜间散步方便，适合京都段的一晚。",
+                    "type": "历史街区",
+                    "rating": 4.4,
+                    "reviews": 15000,
+                    "address": "Gion, Kyoto",
+                    "latitude": 35.0037,
+                    "longitude": 135.7751,
+                    "place_id": "gion-4day",
+                    "query_variant": category,
+                },
+                {
+                    "title": "伏见稻荷大社",
+                    "snippet": "适合京都段早去，之后再移动到大阪比较顺。",
+                    "type": "神社",
+                    "rating": 4.6,
+                    "reviews": 71000,
+                    "address": "Fushimi Ward, Kyoto",
+                    "latitude": 34.9671,
+                    "longitude": 135.7727,
+                    "place_id": "fushimi-inari-4day",
+                    "query_variant": category,
+                },
+                {
+                    "title": "梅田",
+                    "snippet": "大阪交通和住宿方便，适合最后一晚住大阪。",
+                    "type": "商业交通区",
+                    "rating": 4.3,
+                    "reviews": 32000,
+                    "address": "Umeda, Osaka",
+                    "latitude": 34.7025,
+                    "longitude": 135.4959,
+                    "place_id": "umeda-4day",
+                    "query_variant": category,
+                },
+                {
+                    "title": "难波",
+                    "snippet": "大阪餐饮和夜间活动集中，适合作为大阪段主区域。",
+                    "type": "街区",
+                    "rating": 4.4,
+                    "reviews": 28000,
+                    "address": "Namba, Osaka",
+                    "latitude": 34.6658,
+                    "longitude": 135.5011,
+                    "place_id": "namba-4day",
+                    "query_variant": category,
+                },
+            ],
+        )
+
+
+@pytest.mark.asyncio
+async def test_kyoto_osaka_four_day_plan_includes_one_lodging_move_and_all_days():
+    class KyotoOsakaFourDayAgentClient(OrchestratorAgentClient):
+        async def run_agent(self, *, agent_name: str, model: str, prompt: str, payload: dict) -> dict:
+            if agent_name == "travel_orchestrator" and not payload.get("phase"):
+                self.calls.append({"agent_name": agent_name, "model": model, "prompt": prompt, "payload": payload})
+                return {
+                    "answer_mode": "itinerary",
+                    "sections": [{"title": "住宿策略", "body": "京都大阪四天只换一次酒店：京都前两晚，大阪最后一晚。"}],
+                    "tool_calls_requested": [
+                        {
+                            "name": "serper_places",
+                            "arguments": {"query": "京都 大阪 四天 一次换酒店 行程", "category": "本地体验"},
+                            "required": True,
+                        }
+                    ],
+                    "data_gaps": [],
+                }
+            if payload.get("phase") == "final_answer":
+                raise AssertionError("4-day Kyoto/Osaka itinerary should be finalized deterministically")
+            return await super().run_agent(agent_name=agent_name, model=model, prompt=prompt, payload=payload)
+
+    response = await _supervisor(KyotoOsakaFourDayAgentClient(), KyotoOsakaFourDaySerperClient()).plan(
+        TravelPlanRequest(city="Kyoto", query="京都大阪4天只想换一次酒店，怎么安排？", allow_web_search=True)
+    )
+
+    markdown = response.formatted_markdown
+    assert response.answer_mode == "itinerary"
+    assert response.raw_provider_refs["travel_orchestrator"]["finalization"] == "deterministic_structured_cards"
+    assert all(f"第{day}天" in markdown for day in range(1, 5))
+    assert "京都" in markdown and "大阪" in markdown
+    assert "前两晚" in markdown or "2晚" in markdown
+    assert "最后一晚" in markdown or "第3晚" in markdown
+    assert "换酒店" in markdown or "移动到大阪" in markdown
+    assert "Day 1-4" not in markdown
+    assert len(response.itinerary_plan.days) == 4
+
+
 @pytest.mark.asyncio
 async def test_first_timer_cards_explain_practical_fit_not_rating_address_metadata():
     class FukuokaFirstTimerAgentClient(OrchestratorAgentClient):

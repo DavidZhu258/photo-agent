@@ -948,15 +948,9 @@ function itineraryText(plan: TripItineraryPlan | undefined): string {
     for (const block of blocks) {
       const blockTitle = String(block.title ?? "").trim();
       if (!blockTitle) continue;
-      const details = [block.route_note, block.budget_note, block.why]
-        .map((item) => String(item ?? "").trim())
-        .filter(Boolean)
-        .join("；");
+      const details = String(block.route_note ?? "").trim();
       lines.push(`- ${blockTitle}${details ? `：${details}` : ""}`);
     }
-  }
-  if (Array.isArray(plan.assumptions) && plan.assumptions.length > 0) {
-    lines.push(`可补充信息：${plan.assumptions.slice(0, 2).join("；")}`);
   }
   return lines.join("\n").trim();
 }
