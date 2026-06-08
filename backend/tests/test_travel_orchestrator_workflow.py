@@ -1207,13 +1207,331 @@ async def test_gpt_orchestrator_skips_final_model_when_cards_can_be_deterministi
     first_section = response.answer_sections[0]
     top_card_ids = [card.id for card in response.display_cards[:3]]
     top_pin_ids = [pin["id"] for pin in response.map_view["pins"][:3]]
-    assert first_section.title == "先看这 3 个"
+    assert first_section.title == "怎么选"
     assert first_section.card_ids == top_card_ids
     assert first_section.pin_ids == top_pin_ids
-    assert len(response.answer_sections) <= 2
-    assert all(len(section.bullets) <= 3 for section in response.answer_sections)
-    assert len(response.formatted_markdown) < 900
+    assert len(response.answer_sections) <= 3
+    assert all(len(section.bullets) <= 4 for section in response.answer_sections)
+    assert len(response.formatted_markdown) < 1600
+    assert "兴趣匹配" in response.formatted_markdown
+    assert "动线时间" in response.formatted_markdown
     assert "地图" in response.answer_sections[-1].title or "地图" in response.answer_sections[-1].body
+    assert "先看这 3 个" not in response.formatted_markdown
+    assert "先保存前 3 张卡片" not in response.formatted_markdown
+
+
+class TwoCardFamilySerperClient(MinimalSerperClient):
+    async def search_local(self, request: TravelPlanRequest, category: str) -> list[dict]:
+        return await self._record(
+            f"serper_places:{category}",
+            [
+                {
+                    "title": "国立科学博物馆",
+                    "snippet": "恐龙、自然科学展陈集中，适合 6 岁孩子低疲劳参观。",
+                    "type": "科学博物馆",
+                    "rating": 4.5,
+                    "reviews": 13000,
+                    "address": "7-20 Uenokoen, Tokyo",
+                    "latitude": 35.7163,
+                    "longitude": 139.7765,
+                    "place_id": "science-museum",
+                    "query_variant": category,
+                },
+                {
+                    "title": "上野动物园",
+                    "snippet": "同在上野公园内，适合和博物馆二选一或短时间补充。",
+                    "type": "动物园",
+                    "rating": 4.2,
+                    "reviews": 21000,
+                    "address": "9-83 Uenokoen, Tokyo",
+                    "latitude": 35.7168,
+                    "longitude": 139.7711,
+                    "place_id": "ueno-zoo",
+                    "query_variant": category,
+                },
+            ],
+        )
+
+
+@pytest.mark.asyncio
+async def test_deterministic_card_summary_adapts_title_to_actual_card_count():
+    class TokyoFamilyAgentClient(OrchestratorAgentClient):
+        async def run_agent(self, *, agent_name: str, model: str, prompt: str, payload: dict) -> dict:
+            if agent_name == "travel_orchestrator" and not payload.get("phase"):
+                self.calls.append({"agent_name": agent_name, "model": model, "prompt": prompt, "payload": payload})
+                return {
+                    "answer_mode": "place_cards",
+                    "sections": [{"title": "怎么选", "body": "亲子半日要优先低疲劳、同区域和可休息。"}],
+                    "tool_calls_requested": [
+                        {
+                            "name": "serper_places",
+                            "arguments": {"query": "东京 6岁 亲子 半日 上野", "category": "亲子"},
+                            "required": True,
+                        }
+                    ],
+                }
+            if payload.get("phase") == "final_answer":
+                raise AssertionError("card/map deterministic summary should not call final_answer")
+            return await super().run_agent(agent_name=agent_name, model=model, prompt=prompt, payload=payload)
+
+    response = await _supervisor(TokyoFamilyAgentClient(), TwoCardFamilySerperClient()).plan(
+        TravelPlanRequest(city="Tokyo", query="东京带6岁孩子不太累的半日安排", allow_web_search=True)
+    )
+
+    assert len(response.display_cards) == 2
+    assert response.raw_provider_refs["travel_orchestrator"]["finalization"] == "deterministic_structured_cards"
+    assert "先看这 3 个" not in response.formatted_markdown
+    assert "前 3 张" not in response.formatted_markdown
+    assert any("半日" in section.body or any("半日" in bullet for bullet in section.bullets) for section in response.answer_sections)
+    assert "6 岁" in response.formatted_markdown or "6岁" in response.formatted_markdown
+    assert "低疲劳" in response.formatted_markdown or "不太累" in response.formatted_markdown
+    assert "自然和户外" not in response.formatted_markdown
+
+
+class OsakaFoodAreaSerperClient(MinimalSerperClient):
+    async def search_local(self, request: TravelPlanRequest, category: str) -> list[dict]:
+        return await self._record(
+            f"serper_places:{category}",
+            [
+                {
+                    "title": "MJ Guesthouse Osaka",
+                    "snippet": "Budget guesthouse near Osaka attractions.",
+                    "type": "Guest house",
+                    "rating": 5.0,
+                    "reviews": 34,
+                    "query_variant": category,
+                },
+                {
+                    "title": "TAKUTO STAY SAKAISUJI-HOMMACHI - Maisonette",
+                    "snippet": "Apartment hotel stay in Osaka.",
+                    "type": "Hotel",
+                    "rating": 4.9,
+                    "reviews": 88,
+                    "query_variant": category,
+                },
+                {
+                    "title": "新世界",
+                    "snippet": "串カツ、通天阁周边和老派小吃集中，适合避开只逛道顿堀。",
+                    "type": "Food neighborhood",
+                    "rating": 4.3,
+                    "reviews": 6200,
+                    "address": "Ebisuhigashi, Naniwa Ward, Osaka",
+                    "latitude": 34.6525,
+                    "longitude": 135.5063,
+                    "place_id": "shinsekai",
+                    "query_variant": category,
+                },
+                {
+                    "title": "天满",
+                    "snippet": "天神桥筋商店街和立饮小店多，适合本地小吃和晚间随走随吃。",
+                    "type": "Food area",
+                    "rating": 4.2,
+                    "reviews": 2100,
+                    "address": "Tenma, Kita Ward, Osaka",
+                    "latitude": 34.704,
+                    "longitude": 135.512,
+                    "place_id": "tenma",
+                    "query_variant": category,
+                },
+            ],
+        )
+
+
+@pytest.mark.asyncio
+async def test_food_area_query_filters_lodging_candidates_from_primary_cards():
+    class OsakaFoodAreaAgentClient(OrchestratorAgentClient):
+        async def run_agent(self, *, agent_name: str, model: str, prompt: str, payload: dict) -> dict:
+            if agent_name == "travel_orchestrator" and not payload.get("phase"):
+                self.calls.append({"agent_name": agent_name, "model": model, "prompt": prompt, "payload": payload})
+                return {
+                    "answer_mode": "place_cards",
+                    "sections": [{"title": "怎么选", "body": "要找道顿堀之外的小吃区域，而不是住宿。"}],
+                    "tool_calls_requested": [
+                        {
+                            "name": "serper_places",
+                            "arguments": {"query": "大阪 道顿堀 之外 本地 小吃 区域", "category": "本地小吃区域"},
+                            "required": True,
+                        }
+                    ],
+                }
+            if payload.get("phase") == "final_answer":
+                raise AssertionError("food-area cards should be summarized deterministically")
+            return await super().run_agent(agent_name=agent_name, model=model, prompt=prompt, payload=payload)
+
+    response = await _supervisor(OsakaFoodAreaAgentClient(), OsakaFoodAreaSerperClient()).plan(
+        TravelPlanRequest(city="Osaka", query="大阪除了道顿堀，还有哪些本地小吃区域？", allow_web_search=True)
+    )
+
+    titles = [card.title for card in response.display_cards]
+    assert "新世界" in titles
+    assert "天满" in titles
+    assert not any("Guesthouse" in title or "Hotel" in title or "STAY" in title for title in titles)
+    assert "MJ Guesthouse" not in response.formatted_markdown
+    assert "TAKUTO STAY" not in response.formatted_markdown
+    assert "道顿堀之外" in response.formatted_markdown or "只去道顿堀" in response.formatted_markdown
+    assert "河豚" not in response.formatted_markdown
+
+
+class GenericReviewPageSerperClient(MinimalSerperClient):
+    async def search_local(self, request: TravelPlanRequest, category: str) -> list[dict]:
+        return await self._record(
+            f"serper_places:{category}",
+            [
+                {
+                    "title": "Reviews for Local Tastes of Dotonbori: Osaka Night Food Adventure",
+                    "snippet": "Read 261 reviews for a paid night food adventure.",
+                    "type": "Review page",
+                    "rating": 5.0,
+                    "link": "https://example.com/reviews/dotonbori-food-tour",
+                    "query_variant": category,
+                },
+                {
+                    "title": "道頓堀 - Updated June 2026 - 1892 Photos & 158 Reviews - Yelp",
+                    "snippet": "Yelp review listing for Dotonbori.",
+                    "type": "Review site",
+                    "rating": 4.5,
+                    "link": "https://www.yelp.com/biz/dotonbori-osaka",
+                    "query_variant": category,
+                },
+                {
+                    "title": "大阪城公园",
+                    "snippet": "免费散步空间，适合低预算两天行程中安排半天。",
+                    "type": "公园",
+                    "rating": 4.3,
+                    "reviews": 72000,
+                    "address": "Osakajo, Chuo Ward, Osaka",
+                    "latitude": 34.6873,
+                    "longitude": 135.5262,
+                    "place_id": "osaka-castle-park",
+                    "query_variant": category,
+                },
+            ],
+        )
+
+
+@pytest.mark.asyncio
+async def test_generic_review_pages_do_not_become_primary_trip_cards():
+    class BudgetOsakaAgentClient(OrchestratorAgentClient):
+        async def run_agent(self, *, agent_name: str, model: str, prompt: str, payload: dict) -> dict:
+            if agent_name == "travel_orchestrator" and not payload.get("phase"):
+                self.calls.append({"agent_name": agent_name, "model": model, "prompt": prompt, "payload": payload})
+                return {
+                    "answer_mode": "place_cards",
+                    "sections": [{"title": "怎么选", "body": "低预算两天要优先免费街区、公园和便宜小吃。"}],
+                    "tool_calls_requested": [
+                        {
+                            "name": "serper_places",
+                            "arguments": {"query": "大阪 两天 低预算 免费 景点 小吃", "category": "本地体验"},
+                            "required": True,
+                        }
+                    ],
+                }
+            if payload.get("phase") == "final_answer":
+                raise AssertionError("budget cards should be summarized deterministically")
+            return await super().run_agent(agent_name=agent_name, model=model, prompt=prompt, payload=payload)
+
+    response = await _supervisor(BudgetOsakaAgentClient(), GenericReviewPageSerperClient()).plan(
+        TravelPlanRequest(city="Osaka", query="大阪低预算两天怎么玩，但不要太无聊", budget="低预算", allow_web_search=True)
+    )
+
+    titles = [card.title for card in response.display_cards]
+    assert "大阪城公园" in titles
+    assert not any("Reviews for" in title or "Yelp" in title for title in titles)
+    assert "Yelp" not in response.formatted_markdown
+    assert "review listing" not in response.formatted_markdown.lower()
+    assert "低预算" in response.formatted_markdown
+    assert "两天" in response.formatted_markdown
+    assert "自然和户外" not in response.formatted_markdown
+
+
+class SapporoWinterSerperClient(MinimalSerperClient):
+    async def search_local(self, request: TravelPlanRequest, category: str) -> list[dict]:
+        return await self._record(
+            f"serper_places:{category}",
+            [
+                {
+                    "title": "藻岩山纜車",
+                    "snippet": "夜景缆车，天气差时体验会明显受影响。",
+                    "type": "山缆车",
+                    "rating": 4.6,
+                    "place_id": "moiwa-ropeway",
+                    "query_variant": category,
+                },
+                {
+                    "title": "藻岩山 山顶展望台",
+                    "snippet": "藻岩山同一夜景系统的山顶观景点。",
+                    "type": "展望台",
+                    "rating": 4.5,
+                    "address": "Moiwa Sancho Station, Sapporo",
+                    "latitude": 43.022,
+                    "longitude": 141.322,
+                    "place_id": "moiwa-observatory",
+                    "query_variant": category,
+                },
+                {
+                    "title": "藻岩山",
+                    "snippet": "同属藻岩山夜景区域。",
+                    "type": "山",
+                    "rating": 4.5,
+                    "place_id": "moiwa-mountain",
+                    "query_variant": category,
+                },
+                {
+                    "title": "札幌啤酒博物馆",
+                    "snippet": "冬天室内友好，适合第一次到札幌了解城市和啤酒文化。",
+                    "type": "博物馆",
+                    "rating": 4.2,
+                    "address": "Kita 7 Johigashi, Sapporo",
+                    "latitude": 43.0715,
+                    "longitude": 141.3697,
+                    "place_id": "sapporo-beer-museum",
+                    "query_variant": category,
+                },
+                {
+                    "title": "小樽运河",
+                    "snippet": "冬季雪景和灯光氛围好，适合做札幌近郊半日或一日。",
+                    "type": "景点",
+                    "rating": 4.2,
+                    "address": "Otaru, Hokkaido",
+                    "latitude": 43.1986,
+                    "longitude": 141.0012,
+                    "place_id": "otaru-canal",
+                    "query_variant": category,
+                },
+            ],
+        )
+
+
+@pytest.mark.asyncio
+async def test_duplicate_landmark_variants_do_not_fill_top_structured_cards():
+    class SapporoWinterAgentClient(OrchestratorAgentClient):
+        async def run_agent(self, *, agent_name: str, model: str, prompt: str, payload: dict) -> dict:
+            if agent_name == "travel_orchestrator" and not payload.get("phase"):
+                self.calls.append({"agent_name": agent_name, "model": model, "prompt": prompt, "payload": payload})
+                return {
+                    "answer_mode": "place_cards",
+                    "sections": [{"title": "怎么选", "body": "第一次冬天去札幌要兼顾雪景、室内备选和交通风险。"}],
+                    "tool_calls_requested": [
+                        {
+                            "name": "serper_places",
+                            "arguments": {"query": "札幌 冬天 第一次 推荐 雪景 室内", "category": "本地体验"},
+                            "required": True,
+                        }
+                    ],
+                }
+            if payload.get("phase") == "final_answer":
+                raise AssertionError("winter recommendation cards should be summarized deterministically")
+            return await super().run_agent(agent_name=agent_name, model=model, prompt=prompt, payload=payload)
+
+    response = await _supervisor(SapporoWinterAgentClient(), SapporoWinterSerperClient()).plan(
+        TravelPlanRequest(city="Sapporo", query="第一次冬天去札幌，除了雪祭还能玩什么？", allow_web_search=True)
+    )
+
+    top_titles = [card.title for card in response.display_cards[:3]]
+    assert sum(1 for title in top_titles if "藻岩" in title) <= 1
+    assert any(title in top_titles for title in ["札幌啤酒博物馆", "小樽运河"])
+    assert "冬" in response.formatted_markdown
+    assert "雪祭" in response.formatted_markdown or "天气" in response.formatted_markdown
 
 
 @pytest.mark.asyncio

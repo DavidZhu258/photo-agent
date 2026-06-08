@@ -1268,33 +1268,357 @@ def _concise_sections_from_display_cards(
     card_ids = [card.id for card in cards]
     pins = _list_of_dicts((response.map_view or {}).get("pins"))[:3]
     pin_ids = [str(pin.get("id") or "").strip() for pin in pins if str(pin.get("id") or "").strip()]
-    top_names = "、".join(card.title for card in cards if card.title)
-    category_hint = _dominant_card_category(cards)
-    body = (
-        f"先看 {top_names}。因为这些候选已经有地点卡片"
-        f"{'和地图 pins' if pin_ids else ''}，适合先保存、对比位置，再决定要不要加入行程。"
-    )
-    if category_hint == "美食":
-        body = (
-            f"先看 {top_names}。因为这些候选更贴近这次餐饮问题，并且已经有地点卡片"
-            f"{'和地图 pins' if pin_ids else ''}，适合先核对菜单、预约和当天动线。"
+    sections = _task_aware_sections_from_display_cards(request, response.display_cards[:6])
+    if not sections:
+        sections = _classified_sections_from_places(
+            request,
+            [_place_from_display_card(card) for card in response.display_cards[:6]],
         )
+    if not sections:
+        sections = _fallback_task_aware_sections_from_display_cards(request, cards, bool(pin_ids))
     return [
         {
-            "id": "top-cards",
-            "title": "先看这 3 个",
-            "body": body,
-            "bullets": [_card_summary_bullet(card, request) for card in cards],
+            **section,
             "card_ids": card_ids,
             "pin_ids": pin_ids,
+            "bullets": _string_list(section.get("bullets"))[:4],
+        }
+        for section in sections[:3]
+    ]
+
+
+def _place_from_display_card(card: TravelDisplayCard) -> dict[str, Any]:
+    return {
+        "title": card.title,
+        "snippet": card.display_reason or card.description or card.reason,
+        "type": card.subcategory or card.category or card.subtitle,
+        "rating": card.rating,
+        "reviews": card.review_count,
+        "address": card.address,
+        "latitude": card.lat,
+        "longitude": card.lng,
+        "place_id": card.place_id or card.id,
+    }
+
+
+def _task_aware_sections_from_display_cards(
+    request: TravelPlanRequest,
+    cards: list[TravelDisplayCard],
+) -> list[dict[str, Any]]:
+    if not cards:
+        return []
+    query_text = f"{request.query} {request.question} {' '.join(request.interest_tags)} {' '.join(request.constraints)}"
+    lowered = query_text.lower()
+    if _is_family_half_day_query(query_text):
+        return _family_half_day_sections_from_cards(request, cards)
+    if _is_snack_area_query(query_text):
+        return _snack_area_sections_from_cards(request, cards)
+    if _is_budget_short_trip_query(query_text):
+        return _budget_sections_from_cards(request, cards)
+    if _is_winter_sapporo_query(request, query_text):
+        return _winter_sapporo_sections_from_cards(request, cards)
+    if _is_rainy_day_query(query_text):
+        return _rainy_day_sections_from_cards(request, cards)
+    if _is_quiet_morning_walk_query(query_text):
+        return _quiet_walk_sections_from_cards(request, cards)
+    if _is_night_view_query(query_text):
+        return _night_view_sections_from_cards(request, cards)
+    if "第一次" in query_text or "新手" in query_text or "first" in lowered:
+        return _first_timer_sections_from_cards(request, cards)
+    return []
+
+
+def _family_half_day_sections_from_cards(
+    request: TravelPlanRequest,
+    cards: list[TravelDisplayCard],
+) -> list[dict[str, Any]]:
+    names = _display_card_names(cards)
+    return [
+        {
+            "id": "family-choice",
+            "title": "怎么选",
+            "body": f"带 6 岁孩子做半日安排，关键是低疲劳、少转场、随时能休息；{names}适合先按孩子兴趣二选一或短串联。",
+            "bullets": [
+                f"低疲劳优先：{_card_summary_bullet(cards[0], request)}",
+                *[f"备选补充：{_card_summary_bullet(card, request)}" for card in cards[1:3]],
+                "不要把半日塞成全天：同一区域只选 1 个主点，再留 30–60 分钟吃饭、洗手间和临时休息。",
+            ],
         },
         {
-            "id": "map-use",
-            "title": "怎么用地图",
-            "body": _map_use_body(request, cards, bool(pin_ids)),
+            "id": "family-half-day",
+            "title": "半日怎么排",
+            "body": "建议用“一个主点 + 一个很近的备选”来排，不追求打卡数量。",
+            "bullets": [
+                "上午或午后先去孩子最感兴趣的主点，控制在 90–150 分钟内。",
+                "如果状态好，再补同一区域的短项目；如果累了，就直接吃饭或回酒店休息。",
+                "地图只用来确认两点是否真的同区，跨区候选不适合作为低疲劳半日。",
+            ],
+        },
+    ]
+
+
+def _snack_area_sections_from_cards(
+    request: TravelPlanRequest,
+    cards: list[TravelDisplayCard],
+) -> list[dict[str, Any]]:
+    names = _display_card_names(cards)
+    return [
+        {
+            "id": "snack-area-choice",
+            "title": "怎么选",
+            "body": f"这题重点是选道顿堀之外的小吃区域，而不是单店拔草；我会先看{names}，再按本地感、交通和晚间氛围取舍。",
+            "bullets": [
+                f"区域候选：{_card_summary_bullet(cards[0], request)}",
+                *[f"备选区域：{_card_summary_bullet(card, request)}" for card in cards[1:3]],
+                "如果只想随走随吃，优先商店街、站前或小店密集区；如果想拍照热闹，再把道顿堀当作补充而不是唯一目的地。",
+            ],
+        },
+        {
+            "id": "snack-area-map",
+            "title": "怎么排/地图",
+            "body": "小吃区域适合按晚餐前后动线来排：离住宿或当天最后一个景点近，比理论评分更重要。",
+            "bullets": [
+                "同晚最多选一个主区域，避免在不同街区之间来回跑。",
+                "先用地图看和地铁/JR 站的距离，再决定是晚餐主场还是宵夜补充。",
+                "到店前仍要核对营业日、排队和是否接受现金/预约。",
+            ],
+        },
+    ]
+
+
+def _budget_sections_from_cards(
+    request: TravelPlanRequest,
+    cards: list[TravelDisplayCard],
+) -> list[dict[str, Any]]:
+    names = _display_card_names(cards)
+    return [
+        {
+            "id": "budget-choice",
+            "title": "怎么选",
+            "body": f"低预算两天不要只省钱到无聊：先用免费/低门票地点打底，再把小吃、夜景或商店街作为氛围补充。当前可先看{names}。",
+            "bullets": [
+                f"免费或低成本主点：{_card_summary_bullet(cards[0], request)}",
+                *[f"低预算备选：{_card_summary_bullet(card, request)}" for card in cards[1:3]],
+                "把付费项目压到每天 0–1 个，更多时间留给公园、街区、市场和便利店/立食小吃。",
+            ],
+        },
+        {
+            "id": "budget-two-days",
+            "title": "两天怎么排",
+            "body": "用“白天免费景点 + 傍晚街区小吃”的节奏，会比只逛商业区更有内容也更省。",
+            "bullets": [
+                "Day 1 选一个大范围免费点，再接附近商店街或小吃区。",
+                "Day 2 换一个城市气质不同的区域，不要为了省交通费反复回头。",
+                "交通上优先同区域串联；如果一天跨太多区，省下的门票会被体力和车费抵消。",
+            ],
+        },
+    ]
+
+
+def _winter_sapporo_sections_from_cards(
+    request: TravelPlanRequest,
+    cards: list[TravelDisplayCard],
+) -> list[dict[str, Any]]:
+    names = _display_card_names(cards)
+    return [
+        {
+            "id": "winter-choice",
+            "title": "怎么选",
+            "body": f"第一次冬天去札幌，除了雪祭，我会把候选分成雪景/夜景、室内备选和近郊氛围三类；当前先看{names}。",
+            "bullets": [
+                f"冬季主候选：{_card_summary_bullet(cards[0], request)}",
+                *[f"天气备选：{_card_summary_bullet(card, request)}" for card in cards[1:3]],
+                "雪天路滑、天黑早，缆车/展望台要看天气；室内博物馆或近郊短线适合作为风雪备选。",
+            ],
+        },
+        {
+            "id": "winter-map",
+            "title": "怎么排/地图",
+            "body": "冬季不要按夏天步速排：每次换乘和步行都要留缓冲。",
+            "bullets": [
+                "白天放室外雪景或近郊，傍晚再安排夜景或室内点。",
+                "同类地点不要重复塞太多；藻岩山这类同一区域只保留一个主入口或观景点即可。",
+                "遇到大雪、强风或低能见度，优先改成室内文化点和车站周边餐饮。",
+            ],
+        },
+    ]
+
+
+def _rainy_day_sections_from_cards(
+    request: TravelPlanRequest,
+    cards: list[TravelDisplayCard],
+) -> list[dict[str, Any]]:
+    names = _display_card_names(cards)
+    return [
+        {
+            "id": "rain-choice",
+            "title": "怎么选",
+            "body": f"下雨天不要只躲进商场；优先选室内展馆、可短距离换乘、排队风险低的点。当前先看{names}。",
+            "bullets": [
+                f"雨天主候选：{_card_summary_bullet(cards[0], request)}",
+                *[f"雨天备选：{_card_summary_bullet(card, request)}" for card in cards[1:3]],
+                "如果雨很大，宁可少换区；如果只是小雨，可以把博物馆/美术馆和附近咖啡或餐饮组合。",
+            ],
+        },
+        {
+            "id": "rain-map",
+            "title": "怎么排/地图",
+            "body": "地图重点看地铁站、巴士站和步行暴露距离，而不是只看直线距离。",
+            "bullets": [
+                "同区室内点可以串联，跨区就保留一个主点。",
+                "把需要长时间户外排队或无遮挡步行的候选降级。",
+                "营业时间、临时闭馆和预约规则要出发前再核对。",
+            ],
+        },
+    ]
+
+
+def _quiet_walk_sections_from_cards(
+    request: TravelPlanRequest,
+    cards: list[TravelDisplayCard],
+) -> list[dict[str, Any]]:
+    names = _display_card_names(cards)
+    return [
+        {
+            "id": "quiet-choice",
+            "title": "怎么选",
+            "body": f"早上散步想相对安静，重点是避开最热门主轴，选择开阔、可绕路、停留压力低的区域；当前先看{names}。",
+            "bullets": [
+                f"安静候选：{_card_summary_bullet(cards[0], request)}",
+                *[f"备选路线点：{_card_summary_bullet(card, request)}" for card in cards[1:3]],
+                "清水寺、伏见稻荷、岚山这类名点即使早上也不保证空；如果去，要走侧线或早点结束。",
+            ],
+        },
+        {
+            "id": "quiet-map",
+            "title": "怎么排/地图",
+            "body": "地图用于找侧门、河边、公园边缘和回程交通，不要把热门点硬串成主路线。",
+            "bullets": [
+                "7–9 点适合短散步，10 点后热门线路人流会明显上来。",
+                "只选一个主区域慢走，别在早上跨太多区。",
+                "如果遇到赏樱/红叶旺季，把安静预期下调，优先选更开阔的公园或御苑类地点。",
+            ],
+        },
+    ]
+
+
+def _night_view_sections_from_cards(
+    request: TravelPlanRequest,
+    cards: list[TravelDisplayCard],
+) -> list[dict[str, Any]]:
+    names = _display_card_names(cards)
+    return [
+        {
+            "id": "night-choice",
+            "title": "怎么选",
+            "body": f"夜景要把观景效果和回程难度一起算；如果不想交通麻烦，优先看城市内、靠近公共交通的点：{names}。",
+            "bullets": [
+                f"夜景主候选：{_card_summary_bullet(cards[0], request)}",
+                *[f"备选夜景：{_card_summary_bullet(card, request)}" for card in cards[1:3]],
+                "北九州皿仓山这类夜景很强，但要看缆车、换乘和末班车；交通优先时未必比福冈市内更省心。",
+            ],
+        },
+        {
+            "id": "night-map",
+            "title": "怎么排/地图",
+            "body": "地图重点看回酒店的末班车、打车距离和夜间步行安全感。",
+            "bullets": [
+                "傍晚前到达观景点，留出天气和排队缓冲。",
+                "如果当晚还要吃饭或喝酒，优先选市内点，别把回程压到太晚。",
+                "风大、雨天或低云时，展望台体验会打折，河边/港边城市夜景可能更稳。",
+            ],
+        },
+    ]
+
+
+def _first_timer_sections_from_cards(
+    request: TravelPlanRequest,
+    cards: list[TravelDisplayCard],
+) -> list[dict[str, Any]]:
+    names = _display_card_names(cards)
+    city = request.city or "这座城市"
+    return [
+        {
+            "id": "first-timer-choice",
+            "title": "怎么选",
+            "body": f"第一次去{city}，我会先选好理解、交通不复杂、能代表城市气质的点；当前先看{names}。",
+            "bullets": [
+                f"新手主候选：{_card_summary_bullet(cards[0], request)}",
+                *[f"新手备选：{_card_summary_bullet(card, request)}" for card in cards[1:3]],
+                "不要只按评分堆地点：新手更需要顺路、好找、停留时间弹性大。",
+            ],
+        },
+        {
+            "id": "first-timer-map",
+            "title": "怎么排/地图",
+            "body": "先用地图把候选按区域分组，再决定半日或一日组合。",
+            "bullets": [
+                "同区 2–3 个点可以串联；跨区就拆到不同半日。",
+                "把离住宿、车站或当天主餐最近的点放前面。",
+                "如果天气或体力变化，优先保留交通简单的核心点。",
+            ],
+        },
+    ]
+
+
+def _display_card_names(cards: list[TravelDisplayCard], limit: int = 3) -> str:
+    return "、".join(card.title for card in cards[:limit] if card.title) or "这些候选"
+
+
+def _is_family_half_day_query(text: str) -> bool:
+    lowered = text.lower()
+    return any(token in text for token in ["孩子", "小孩", "亲子", "6岁", "6 岁", "儿童"]) or "kid" in lowered or "family" in lowered
+
+
+def _is_snack_area_query(text: str) -> bool:
+    lowered = text.lower()
+    return any(token in text for token in ["小吃", "道顿堀", "道頓堀", "区域", "街区", "本地吃"]) or "snack" in lowered or "food area" in lowered
+
+
+def _is_budget_short_trip_query(text: str) -> bool:
+    lowered = text.lower()
+    return any(token in text for token in ["低预算", "省钱", "预算比较低", "便宜"]) or "budget" in lowered
+
+
+def _is_winter_sapporo_query(request: TravelPlanRequest, text: str) -> bool:
+    city = (request.city or "").lower()
+    return ("札幌" in text or "sapporo" in city or "sapporo" in text.lower()) and any(token in text for token in ["冬", "雪祭", "雪"])
+
+
+def _is_rainy_day_query(text: str) -> bool:
+    lowered = text.lower()
+    return any(token in text for token in ["下雨", "雨天", "下雨天", "雨"]) or "rain" in lowered
+
+
+def _is_quiet_morning_walk_query(text: str) -> bool:
+    lowered = text.lower()
+    return any(token in text for token in ["安静", "早上", "散步", "避开最挤", "人少"]) or ("quiet" in lowered and "walk" in lowered)
+
+
+def _is_night_view_query(text: str) -> bool:
+    lowered = text.lower()
+    return any(token in text for token in ["夜景", "看夜", "晚上看"]) or "night view" in lowered
+
+
+def _fallback_task_aware_sections_from_display_cards(
+    request: TravelPlanRequest,
+    cards: list[TravelDisplayCard],
+    has_pins: bool,
+) -> list[dict[str, Any]]:
+    count = len(cards)
+    noun = f"这 {count} 个候选" if count > 1 else "这个候选"
+    return [
+        {
+            "id": "how-to-choose",
+            "title": "怎么选",
+            "body": f"{noun}先按是否匹配兴趣、是否顺路、是否适合当天体力和天气来判断，而不是只按评分排序。",
+            "bullets": [_card_summary_bullet(card, request) for card in cards],
+        },
+        {
+            "id": "route-use",
+            "title": "怎么排/地图",
+            "body": _map_use_body(request, cards, has_pins),
             "bullets": _map_use_bullets(request, cards),
-            "card_ids": card_ids,
-            "pin_ids": pin_ids,
         },
     ]
 
@@ -1343,8 +1667,10 @@ def _map_use_bullets(
     request: TravelPlanRequest,
     cards: list[TravelDisplayCard],
 ) -> list[str]:
+    count = min(len(cards), 3)
+    card_word = f"前 {count} 张卡片" if count > 1 else "这张卡片"
     bullets = [
-        "先保存前 3 张卡片，再用 pins 看同区组合，避免只按评分排序。",
+        f"先看{card_word}的区域关系，再用 pins 判断同区组合，避免只按评分排序。",
         "把离住宿、车站或当天主景点最近的候选放前面。",
     ]
     query_text = f"{request.query} {request.question}".lower()
@@ -1472,7 +1798,7 @@ def _classified_sections_from_places(
                     "位置是否顺路、预算与安全是否可执行。"
                 ),
                 "bullets": [
-                    f"推荐原因：这次重点是河豚或当地餐饮，优先看{food_names}这类明确命中菜系的候选。",
+                    f"推荐原因：因为这次重点是河豚或当地餐饮，优先看{food_names}这类明确命中菜系的候选。",
                     f"口碑确认：先把{anchor_fact}这种有评分、地址或片段的餐厅放进短名单，再核对预约和营业时间。",
                     "动线时间：餐厅更适合贴近住宿、当天景点或交通节点安排，不建议为了单顿饭跨太远区域。",
                     "预算/安全：河豚料理尤其要确认正规处理资质、套餐价格和预约规则；没有实时库存时不要把模型文字当作订位结果。",

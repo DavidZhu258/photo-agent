@@ -3096,19 +3096,32 @@ def _display_cards(
             resolved_intent,
             group.title,
         )
+        local_items = _filter_primary_trip_card_items(
+            local_items,
+            request=request,
+            resolved_intent=resolved_intent,
+            group_title=group.title,
+        )
         if (
             not local_items
             and local_key not in api_payloads
             and group.title == _raw_query_target_category(request, resolved_intent=resolved_intent)
         ):
-            items.extend(_raw_query_items_for_category(request, api_payloads, resolved_intent=resolved_intent))
+            items.extend(
+                _filter_primary_trip_card_items(
+                    _raw_query_items_for_category(request, api_payloads, resolved_intent=resolved_intent),
+                    request=request,
+                    resolved_intent=resolved_intent,
+                    group_title=group.title,
+                )
+            )
         items.extend(local_items)
 
         for item in sorted(items, key=lambda value: _display_item_quality_score(value, request), reverse=True):
             title = _item_title(item)
             if not title:
                 continue
-            key = title.lower()
+            key = _primary_trip_card_dedupe_key(item)
             if key in seen:
                 continue
             seen.add(key)
@@ -3186,6 +3199,161 @@ def _display_item_quality_score(item: dict[str, Any], request: TravelPlanRequest
         1 if item.get("address") or item.get("location") else 0,
         0 if _is_generic_web_result(item) else 1,
     )
+
+
+def _filter_primary_trip_card_items(
+    items: list[dict[str, Any]],
+    *,
+    request: TravelPlanRequest,
+    resolved_intent: dict[str, object],
+    group_title: str,
+) -> list[dict[str, Any]]:
+    return [
+        item
+        for item in items
+        if _can_be_primary_trip_card(
+            item,
+            request=request,
+            resolved_intent=resolved_intent,
+            group_title=group_title,
+        )
+    ]
+
+
+def _can_be_primary_trip_card(
+    item: dict[str, Any],
+    *,
+    request: TravelPlanRequest,
+    resolved_intent: dict[str, object],
+    group_title: str,
+) -> bool:
+    if _is_marketing_or_ad_item(item):
+        return False
+    if _is_generic_review_or_search_page(item):
+        return False
+    if _is_lodging_candidate(item) and not _is_lodging_request(request, resolved_intent, group_title):
+        return False
+    return True
+
+
+def _is_lodging_request(
+    request: TravelPlanRequest,
+    resolved_intent: dict[str, object],
+    group_title: str,
+) -> bool:
+    text = _normalized_match_text(
+        " ".join(
+            [
+                request.query,
+                request.question,
+                " ".join(request.requested_categories),
+                str(resolved_intent.get("category") or ""),
+                group_title,
+            ]
+        )
+    )
+    return any(token in text for token in ["酒店", "住宿", "hotel", "hostel", "guesthouse", "guest house", "ryokan", "旅馆", "旅館"])
+
+
+def _is_lodging_candidate(item: dict[str, Any]) -> bool:
+    text = _normalized_match_text(
+        " ".join(
+            str(item.get(key) or "")
+            for key in ["title", "name", "snippet", "description", "type", "category", "source", "link"]
+        )
+    )
+    return any(
+        token in text
+        for token in [
+            "hotel",
+            "hotels",
+            "hostel",
+            "guesthouse",
+            "guest house",
+            "stay",
+            "stays",
+            "inn",
+            "apartment hotel",
+            "ryokan",
+            "住宿",
+            "酒店",
+            "旅馆",
+            "旅館",
+            "民宿",
+        ]
+    )
+
+
+def _is_generic_review_or_search_page(item: dict[str, Any]) -> bool:
+    if not _is_generic_web_result(item):
+        return False
+    text = _normalized_match_text(
+        " ".join(
+            str(item.get(key) or "")
+            for key in ["title", "name", "snippet", "description", "type", "category", "source", "domain", "link"]
+        )
+    )
+    markers = [
+        "reviews for",
+        "review",
+        "reviews",
+        "yelp",
+        "tripadvisor",
+        "all you should know",
+        "before going",
+        "updated june",
+        "best things to do",
+        "top things to do",
+        "things to do in",
+        "search results",
+        "listing",
+        "listicle",
+        "photos",
+        "口コミ",
+        "レビュー",
+    ]
+    return any(marker in text for marker in markers)
+
+
+def _primary_trip_card_dedupe_key(item: dict[str, Any]) -> str:
+    place_id = _item_place_id(item).lower()
+    if place_id:
+        return place_id
+    title = _normalized_match_text(_item_title(item))
+    address = _normalized_match_text(str(item.get("address") or item.get("location") or ""))
+    duplicate_markers = [
+        ("藻岩", "moiwa"),
+        ("moiwa", "moiwa"),
+        ("清水", "kiyomizu"),
+        ("kiyomizu", "kiyomizu"),
+        ("伏见稻荷", "fushimi-inari"),
+        ("伏見稲荷", "fushimi-inari"),
+        ("fushimi inari", "fushimi-inari"),
+        ("inari", "fushimi-inari"),
+    ]
+    combined = f"{title} {address}"
+    for marker, key in duplicate_markers:
+        if marker in combined:
+            return key
+    noise_tokens = [
+        "ropeway",
+        "纜車",
+        "缆车",
+        "山顶展望台",
+        "展望台",
+        "observatory",
+        "mount",
+        "山",
+        "the stage of",
+        "大社",
+        "shrine",
+        "temple",
+    ]
+    normalized = title
+    for token in noise_tokens:
+        normalized = normalized.replace(token, " ")
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    return normalized or title.lower()
 
 
 def _filter_marketing_or_ad_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
