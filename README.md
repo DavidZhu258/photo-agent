@@ -175,3 +175,12 @@ Recent local validation:
 ## Security Notes
 
 Do not commit local `.env` files, API keys, logs, build outputs, or generated native iOS projects. The root `.gitignore` excludes those paths. Use `backend/.env.example` as the public configuration template.
+
+## Evaluation Evidence
+
+This repository includes a seed-gold evaluation scaffold under `evals/`.
+
+- Plan: [`gold_testset_plan.md`](gold_testset_plan.md)
+- Current results: [`EVAL_RESULTS.md`](EVAL_RESULTS.md)
+- Latest machine-readable validation: [`evals/results/latest_seed_validation.json`](evals/results/latest_seed_validation.json)
+- GitHub Actions: `Eval Seed Validation`
