@@ -3324,12 +3324,16 @@ def _is_generic_review_or_search_page(item: dict[str, Any]) -> bool:
 
 
 def _primary_trip_card_dedupe_key(item: dict[str, Any]) -> str:
-    place_id = _item_place_id(item).lower()
-    if place_id:
-        return place_id
     title = _normalized_match_text(_item_title(item))
     address = _normalized_match_text(str(item.get("address") or item.get("location") or ""))
     duplicate_markers = [
+        ("ukimi do", "ohori-park"),
+        ("ukimi-do", "ohori-park"),
+        ("浮見堂", "ohori-park"),
+        ("浮见堂", "ohori-park"),
+        ("大濠", "ohori-park"),
+        ("ohori", "ohori-park"),
+        ("ohorikoen", "ohori-park"),
         ("藻岩", "moiwa"),
         ("moiwa", "moiwa"),
         ("清水", "kiyomizu"),
@@ -3343,6 +3347,9 @@ def _primary_trip_card_dedupe_key(item: dict[str, Any]) -> str:
     for marker, key in duplicate_markers:
         if marker in combined:
             return key
+    place_id = _item_place_id(item).lower()
+    if place_id:
+        return place_id
     noise_tokens = [
         "ropeway",
         "纜車",
@@ -4104,14 +4111,20 @@ def _is_night_view_text(text: str) -> bool:
 
 
 def _first_timer_display_reason(title: str, text: str, category: str) -> str:
-    if any(token in text for token in ["大濠", "ohori", "park", "公園", "公园", "湖"]):
-        return "适合第一站放慢节奏：湖边散步和拍照都轻松，停留 60–90 分钟，可和福冈城迹、赤坂/大名咖啡顺路。"
     if any(token in text for token in ["太宰府", "dazaifu", "tenmangu", "天満宮", "天满宫"]):
         return "适合半日小旅行：参道小吃和神社氛围完整，建议单独排半天，不要和市区点硬塞同一上午。"
+    if any(token in text for token in ["momochihama", "momochi", "beach", "海滨", "海濱", "海边", "海邊", "百道"]):
+        return "适合海滨轻松半日：海边散步、拍塔和休息都直观，建议和福冈塔/百道海滨同区安排，别和太宰府硬串。"
+    if any(token in text for token in ["大濠", "ohori", "ohorikoen", "park", "公園", "公园", "湖"]):
+        return "适合第一站放慢节奏：湖边散步和拍照都轻松，停留 60–90 分钟，可和福冈城迹、赤坂/大名咖啡顺路。"
     if any(token in text for token in ["栉田", "櫛田", "kushida", "shrine", "神社"]):
         return "适合博多老城区短停：停留 20–40 分钟，可和川端商店街、中洲或博多站顺路。"
+    if any(token in text for token in ["hakata old town", "old town", "博多老", "博多旧", "博多舊", "街区", "街區"]):
+        return "适合补城市历史感：把寺社、商店街和博多站周边串成 60–120 分钟步行段，比单点打卡更适合新手。"
     if any(token in text for token in ["tower", "塔", "展望", "view", "observatory"]):
         return "适合作为城市方位感第一站：看清海湾和市区布局后再排路线，停留约 60 分钟，天气差时降级为备选。"
+    if any(token in text for token in ["canal", "运河", "運河", "city", "mall", "商场", "商場"]):
+        return "适合作为晚间或雨天补充：吃饭、购物和回酒店都方便，但更适合收尾，不建议替代白天主景点。"
     if category == "美食":
         return "适合作为初访补充：放在当天主景点附近解决一餐，比专门跨区打卡更省体力。"
     return f"{title}适合新手短名单：先看交通是否顺路和停留弹性，再决定放进半日还是一日路线。"

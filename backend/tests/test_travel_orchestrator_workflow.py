@@ -1157,6 +1157,28 @@ class FukuokaFirstTimerSerperClient(MinimalSerperClient):
                     "query_variant": category,
                 },
                 {
+                    "title": "Momochihama Beach",
+                    "type": "海滨",
+                    "rating": 4.5,
+                    "reviews": 5200,
+                    "address": "2 Chome-4-4 Momochihama, Sawara Ward, Fukuoka",
+                    "latitude": 33.5934,
+                    "longitude": 130.3515,
+                    "place_id": "momochihama-beach",
+                    "query_variant": category,
+                },
+                {
+                    "title": "Ukimi-do Pavilion (Ohori Park)",
+                    "type": "公园景点",
+                    "rating": 4.4,
+                    "reviews": 1300,
+                    "address": "1-1 Ohorikoen, Chuo Ward, Fukuoka",
+                    "latitude": 33.5878,
+                    "longitude": 130.3799,
+                    "place_id": "ukimido-ohori",
+                    "query_variant": category,
+                },
+                {
                     "title": "栉田神社",
                     "type": "神社",
                     "rating": 4.3,
@@ -1165,6 +1187,17 @@ class FukuokaFirstTimerSerperClient(MinimalSerperClient):
                     "latitude": 33.5931,
                     "longitude": 130.4107,
                     "place_id": "kushida-shrine",
+                    "query_variant": category,
+                },
+                {
+                    "title": "Hakata Old Town Area",
+                    "type": "历史街区",
+                    "rating": 4.3,
+                    "reviews": 2100,
+                    "address": "1 Chome-7 Hakata Ekimae, Hakata Ward, Fukuoka",
+                    "latitude": 33.5952,
+                    "longitude": 130.4144,
+                    "place_id": "hakata-old-town",
                     "query_variant": category,
                 },
             ],
@@ -1207,6 +1240,12 @@ async def test_first_timer_cards_explain_practical_fit_not_rating_address_metada
     assert not re.search(r"新手(?:主候选|备选)：[^：\n]+（评分", markdown)
     assert not any((card.display_reason or "").startswith("推荐理由：评分") for card in response.display_cards[:3])
     assert any("散步" in (card.display_reason or "") or "半日" in (card.display_reason or "") for card in response.display_cards[:3])
+    top_titles = [card.title for card in response.display_cards[:3]]
+    assert not ("大濠公园" in top_titles and "Ukimi-do Pavilion (Ohori Park)" in top_titles)
+    assert len({card.display_reason for card in response.display_cards[:3]}) == len(response.display_cards[:3])
+    momochihama = next(card for card in response.display_cards if card.title == "Momochihama Beach")
+    assert "海" in momochihama.display_reason or "海滨" in momochihama.display_reason
+    assert "湖边" not in momochihama.display_reason
 
 
 @pytest.mark.asyncio
