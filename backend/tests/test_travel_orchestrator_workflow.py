@@ -1549,6 +1549,9 @@ async def test_empty_obvious_fukuoka_itinerary_uses_city_anchors_without_final_m
     titles = [card.title for card in response.display_cards]
     assert response.answer_mode == "itinerary"
     assert response.raw_provider_refs["travel_orchestrator"]["finalization"] == "deterministic_structured_cards"
+    assert response.llm_used is False
+    assert response.model_used == "deterministic"
+    assert response.raw_provider_refs["travel_orchestrator"]["model"] == "deterministic"
     assert agent_client.calls == []
     assert any(call.startswith("serper_places:") for call in serper.calls)
     assert len(response.itinerary_plan.days) == 3
@@ -1753,6 +1756,9 @@ async def test_obvious_fukuoka_first_timer_recommendation_uses_fast_path_without
 
     assert response.answer_mode == "place_cards"
     assert response.raw_provider_refs["travel_orchestrator"]["finalization"] == "deterministic_structured_cards"
+    assert response.llm_used is False
+    assert response.model_used == "deterministic"
+    assert response.raw_provider_refs["travel_orchestrator"]["model"] == "deterministic"
     assert agent_client.calls == []
     assert serper.calls == ["serper_places:本地体验"]
     assert response.display_cards
@@ -1788,6 +1794,29 @@ async def test_empty_obvious_fukuoka_first_timer_recommendation_uses_city_anchor
     assert "第一次" in response.formatted_markdown
     assert "交通" in response.formatted_markdown or "顺路" in response.formatted_markdown
     assert "没有可核验地点" not in response.formatted_markdown
+
+
+@pytest.mark.asyncio
+async def test_obvious_fukuoka_first_timer_suppresses_raw_serper_failure_when_anchor_cards_cover_answer():
+    class NoModelFirstTimerAgentClient(OrchestratorAgentClient):
+        async def run_agent(self, *, agent_name: str, model: str, prompt: str, payload: dict) -> dict:
+            if agent_name == "travel_orchestrator":
+                raise AssertionError("anchor-backed first-timer answer should not call GPT")
+            return await super().run_agent(agent_name=agent_name, model=model, prompt=prompt, payload=payload)
+
+    response = await _supervisor(NoModelFirstTimerAgentClient(), MinimalSerperClient(fail_places=True)).plan(
+        TravelPlanRequest(city="Fukuoka", query="福冈第一次去，有哪些地方值得去？给我几个适合新手的点。", allow_web_search=True)
+    )
+
+    assert response.answer_mode == "place_cards"
+    assert len(response.display_cards) >= 5
+    assert response.map_view["status"] == "ready"
+    assert response.llm_used is False
+    assert response.model_used == "deterministic"
+    assert not response.data_gaps
+    assert not response.optional_followups
+    assert "HTTP 502" not in response.formatted_markdown
+    assert "serper_places" not in response.formatted_markdown
 
 
 @pytest.mark.asyncio

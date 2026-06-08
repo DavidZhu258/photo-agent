@@ -936,6 +936,7 @@ def _obvious_itinerary_contract(request: TravelPlanRequest) -> dict[str, Any]:
             }
         ],
         "data_gaps": [],
+        "orchestrator_source": "deterministic_fast_path",
     }
 
 
@@ -957,6 +958,7 @@ def _obvious_first_timer_recommendation_contract(request: TravelPlanRequest) -> 
         ],
         "data_gaps": [],
         "skip_image_enrichment": True,
+        "orchestrator_source": "deterministic_fast_path",
     }
 
 
@@ -2687,19 +2689,28 @@ def _apply_orchestrator_contract(
         sections = _classified_sections_from_routes(state["request"], route_options)
     markdown = _sections_markdown(sections) or response.formatted_markdown or response.narrative_answer
     summary = _contract_summary({"sections": sections}) or _contract_summary(contract) or response.summary
-    data_gaps = list(
-        dict.fromkeys(
-            [
-                *response.data_gaps,
-                *state.get("api_warnings", []),
-                *_string_list(contract.get("data_gaps")),
-            ]
-        )
-    )
+    deterministic_fast_path = _is_deterministic_fast_path(state)
+    data_gap_candidates = [
+        *response.data_gaps,
+        *state.get("api_warnings", []),
+        *_string_list(contract.get("data_gaps")),
+    ]
+    if deterministic_fast_path and _has_sufficient_anchor_answer(state["request"], response):
+        data_gap_candidates = [
+            gap
+            for gap in data_gap_candidates
+            if not _is_non_blocking_fast_path_tool_warning(gap)
+        ]
+    data_gaps = list(dict.fromkeys(data_gap_candidates))
     refs = dict(response.raw_provider_refs or {})
+    orchestrator_model = "deterministic" if deterministic_fast_path else supervisor.model_router.orchestrator
     refs["travel_orchestrator"] = {
-        "model": supervisor.model_router.orchestrator,
-        "ownership": "single_manager_initial_answer_with_lightweight_tools",
+        "model": orchestrator_model,
+        "ownership": (
+            "deterministic_fast_path_with_lightweight_tools"
+            if deterministic_fast_path
+            else "single_manager_initial_answer_with_lightweight_tools"
+        ),
         "tool_calls_requested": initial_tool_calls,
         "final_tool_calls_requested": _contract_tool_calls(contract),
         "max_tool_rounds": getattr(supervisor, "orchestrator_max_tool_rounds", 6),
@@ -2730,21 +2741,28 @@ def _apply_orchestrator_contract(
             "graph_nodes": ORCHESTRATOR_GRAPH_NODE_NAMES,
             "completed_nodes": state.get("completed_nodes", []),
             "failed_nodes": state.get("failed_nodes", []),
-            "manager_model": supervisor.model_router.orchestrator,
+            "manager_model": orchestrator_model,
         }
     )
-    model_used = ",".join(
-        dict.fromkeys(
-            [
-                supervisor.model_router.orchestrator,
-                *[
-                    supervisor.model_router.complex_route
-                    for item in state.get("tool_results", [])
-                    if item.get("name") == "complex_route_reasoner"
-                ],
-            ]
+    model_used = (
+        "deterministic"
+        if deterministic_fast_path
+        else ",".join(
+            dict.fromkeys(
+                [
+                    supervisor.model_router.orchestrator,
+                    *[
+                        supervisor.model_router.complex_route
+                        for item in state.get("tool_results", [])
+                        if item.get("name") == "complex_route_reasoner"
+                    ],
+                ]
+            )
         )
     )
+    optional_followups = response.optional_followups
+    if deterministic_fast_path and _has_sufficient_anchor_answer(state["request"], response):
+        optional_followups = []
     return response.model_copy(
         update={
             "summary": summary,
@@ -2758,20 +2776,67 @@ def _apply_orchestrator_contract(
             "raw_provider_refs": refs,
             "workflow_summary": workflow_summary,
             "agentic_workflow": _orchestrator_workflow_steps(state),
+            "optional_followups": optional_followups,
+            "llm_used": not deterministic_fast_path,
             "model_used": model_used,
             "formatter_model_used": (
                 "deterministic_card_summary"
                 if state.get("finalization_source") == "deterministic_structured_cards"
                 else "travel_orchestrator"
             ),
-            "reasoning_mode": (
-                "gpt_orchestrator+bounded_tools+deterministic_card_summary"
-                if state.get("finalization_source") == "deterministic_structured_cards"
-                else "gpt_orchestrator+bounded_tools+final_synthesis"
-            ),
+            "reasoning_mode": _orchestrator_reasoning_mode(state, deterministic_fast_path),
             "needs_user_confirmation": bool(data_gaps),
         }
     )
+
+
+def _is_deterministic_fast_path(state: TravelWorkflowState) -> bool:
+    contract = state.get("initial_orchestrator_contract") or state.get("orchestrator_contract") or {}
+    return str(contract.get("orchestrator_source") or "") == "deterministic_fast_path"
+
+
+def _has_sufficient_anchor_answer(
+    request: TravelPlanRequest,
+    response: TravelPlanResponse,
+) -> bool:
+    if response.answer_mode == "itinerary":
+        requested_days = _requested_day_count(request)
+        pins = response.map_view.get("pins", []) if isinstance(response.map_view, dict) else []
+        return bool(
+            requested_days
+            and len(response.itinerary_plan.days) >= requested_days
+            and len(pins) >= min(requested_days + 1, 5)
+        )
+    if response.answer_mode == "place_cards":
+        pins = response.map_view.get("pins", []) if isinstance(response.map_view, dict) else []
+        return bool(
+            len(response.display_cards) >= min(max(request.max_results, 5), 6)
+            and response.map_view.get("status") == "ready"
+            and pins
+        )
+    return False
+
+
+def _is_non_blocking_fast_path_tool_warning(value: str) -> bool:
+    text = str(value or "")
+    return bool(
+        re.search(
+            r"serper_(?:places|search|images).*API 调用失败|HTTP\s*(?:4\d\d|5\d\d)|Client error|Server error",
+            text,
+            flags=re.I,
+        )
+    )
+
+
+def _orchestrator_reasoning_mode(
+    state: TravelWorkflowState,
+    deterministic_fast_path: bool,
+) -> str:
+    if deterministic_fast_path:
+        return "deterministic_fast_path+bounded_tools+deterministic_card_summary"
+    if state.get("finalization_source") == "deterministic_structured_cards":
+        return "gpt_orchestrator+bounded_tools+deterministic_card_summary"
+    return "gpt_orchestrator+bounded_tools+final_synthesis"
 
 
 def _attach_itinerary_plan(
