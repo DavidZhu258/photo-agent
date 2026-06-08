@@ -1,0 +1,25 @@
+repo: "photo-agent"
+eval_type: "llm_agent_workflow"
+schema: "llm_agent_workflow_case.schema.json"
+gold_target: "100"
+scoring:
+  accuracy_weight: 0.70
+  feasibility_weight: 0.30
+  seed_suite_required: true
+  hard_negatives_required: true
+metrics:
+  - task_success_rate
+  - step_correctness
+  - tool_call_precision
+  - safe_failure_rate
+  - cost_per_task
+  - p95_latency
+reporting_fields:
+  - run_id
+  - git_commit
+  - dataset_version
+  - accuracy_summary
+  - feasibility_summary
+  - failures
+  - cost
+  - latency

@@ -1,0 +1,20 @@
+{
+  "repo": "photo-agent",
+  "url": "https://github.com/DavidZhu258/photo-agent",
+  "tier": "A-core",
+  "priority_score": 96,
+  "project_bucket": "LLM agent / workflow automation",
+  "eval_type": "llm_agent_workflow",
+  "gold_target": "100",
+  "seed_case_count": 3,
+  "local_target_detected": "E:\\python_project\\photo_agent",
+  "files": [
+    "gold_testset_plan.md",
+    "evals/README.md",
+    "evals/gold/seed_gold.jsonl",
+    "evals/gold/full_gold.jsonl",
+    "evals/gold/annotation_template.csv",
+    "evals/rubrics/rubric.yaml",
+    "evals/scripts/README.md"
+  ]
+}

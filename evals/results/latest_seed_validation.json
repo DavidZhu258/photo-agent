@@ -1,0 +1,29 @@
+{
+  "status": "pass",
+  "generated_at": "2026-06-08T17:24:40Z",
+  "repo": "photo-agent",
+  "seed_path": "evals\\gold\\seed_gold.jsonl",
+  "seed_case_count": 3,
+  "hard_negative_count": 1,
+  "referenced_file_count": 4,
+  "referenced_files": {
+    "README.md": {
+      "size_bytes": 6813,
+      "sha256": "cbc0378deecd4bcc1761a823ccca140ec6b10fad507695699747c89dccc64909"
+    },
+    "docs/visual-test-matrix-japan.md": {
+      "size_bytes": 5305,
+      "sha256": "1bfcd53668cb11407c8c7b882bd4699e4b19f455d68c4699d6e47ddf01551aab"
+    },
+    "docs/manager-report-automation/README.md": {
+      "size_bytes": 2827,
+      "sha256": "ce6bd4f255378357701c70821c903dfbcc1aa06e648e000f4958fb493c11b6dd"
+    },
+    "docs/manager-report-automation/example-weekly-report.md": {
+      "size_bytes": 2101,
+      "sha256": "2149fabc413d2d5c303af38a7fcbd0e01d45b28347c756e36cd659c3db80ac89"
+    }
+  },
+  "failures": [],
+  "note": "This validates gold seed traceability and feasibility scaffolding; it does not claim model-quality scores yet."
+}
