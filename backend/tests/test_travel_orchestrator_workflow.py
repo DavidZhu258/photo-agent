@@ -1738,6 +1738,59 @@ async def test_kyoto_osaka_four_day_plan_includes_one_lodging_move_and_all_days(
 
 
 @pytest.mark.asyncio
+async def test_obvious_fukuoka_first_timer_recommendation_uses_fast_path_without_gpt():
+    class NoModelFirstTimerAgentClient(OrchestratorAgentClient):
+        async def run_agent(self, *, agent_name: str, model: str, prompt: str, payload: dict) -> dict:
+            if agent_name == "travel_orchestrator":
+                raise AssertionError("obvious first-timer recommendation should not call GPT orchestrator or final synthesis")
+            return await super().run_agent(agent_name=agent_name, model=model, prompt=prompt, payload=payload)
+
+    agent_client = NoModelFirstTimerAgentClient()
+    serper = FukuokaFirstTimerSerperClient()
+    response = await _supervisor(agent_client, serper).plan(
+        TravelPlanRequest(city="Fukuoka", query="福冈第一次去，有哪些地方值得去？给我几个适合新手的点。", allow_web_search=True)
+    )
+
+    assert response.answer_mode == "place_cards"
+    assert response.raw_provider_refs["travel_orchestrator"]["finalization"] == "deterministic_structured_cards"
+    assert agent_client.calls == []
+    assert serper.calls == ["serper_places:本地体验"]
+    assert response.display_cards
+    assert response.map_view["status"] == "ready"
+    assert len(response.map_view["pins"]) >= 3
+    assert "第一次" in response.formatted_markdown
+    assert "交通" in response.formatted_markdown or "顺路" in response.formatted_markdown
+
+
+@pytest.mark.asyncio
+async def test_empty_obvious_fukuoka_first_timer_recommendation_uses_city_anchors_without_gpt():
+    class NoModelFirstTimerAgentClient(OrchestratorAgentClient):
+        async def run_agent(self, *, agent_name: str, model: str, prompt: str, payload: dict) -> dict:
+            if agent_name == "travel_orchestrator":
+                raise AssertionError("obvious first-timer recommendation should use deterministic city anchors")
+            return await super().run_agent(agent_name=agent_name, model=model, prompt=prompt, payload=payload)
+
+    agent_client = NoModelFirstTimerAgentClient()
+    serper = EmptyFukuokaItinerarySerperClient()
+    response = await _supervisor(agent_client, serper).plan(
+        TravelPlanRequest(city="Fukuoka", query="福冈第一次去，有哪些地方值得去？给我几个适合新手的点。", allow_web_search=True)
+    )
+
+    titles = [card.title for card in response.display_cards]
+    assert response.answer_mode == "place_cards"
+    assert response.raw_provider_refs["travel_orchestrator"]["finalization"] == "deterministic_structured_cards"
+    assert agent_client.calls == []
+    assert serper.calls == ["serper_places:本地体验"]
+    assert len(response.display_cards) >= 5
+    assert response.map_view["status"] == "ready"
+    assert len(response.map_view["pins"]) >= 5
+    assert titles[:5] == ["博多旧市街", "天神", "太宰府天满宫", "大濠公园", "百道海滨"]
+    assert "第一次" in response.formatted_markdown
+    assert "交通" in response.formatted_markdown or "顺路" in response.formatted_markdown
+    assert "没有可核验地点" not in response.formatted_markdown
+
+
+@pytest.mark.asyncio
 async def test_first_timer_cards_explain_practical_fit_not_rating_address_metadata():
     class FukuokaFirstTimerAgentClient(OrchestratorAgentClient):
         async def run_agent(self, *, agent_name: str, model: str, prompt: str, payload: dict) -> dict:

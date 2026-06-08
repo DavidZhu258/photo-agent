@@ -202,6 +202,8 @@ async def _orchestrate(state: TravelWorkflowState) -> dict[str, Any]:
             _obvious_itinerary_contract(request),
             request,
         )
+    elif _is_obvious_first_timer_recommendation_request(request):
+        contract = _obvious_first_timer_recommendation_contract(request)
     else:
         contract = _enforce_required_orchestrator_tools(
             _strip_inventory_only_place_tools(
@@ -373,6 +375,11 @@ async def _render_orchestrator_response(state: TravelWorkflowState) -> dict[str,
                 request=request,
                 response=response,
                 plan_draft=state["plan_draft"],
+            )
+        else:
+            response = _attach_first_timer_city_anchor_cards(
+                request=request,
+                response=response,
             )
 
     response = _apply_orchestrator_contract(
@@ -932,6 +939,27 @@ def _obvious_itinerary_contract(request: TravelPlanRequest) -> dict[str, Any]:
     }
 
 
+def _obvious_first_timer_recommendation_contract(request: TravelPlanRequest) -> dict[str, Any]:
+    return {
+        "answer_mode": "place_cards",
+        "sections": [],
+        "tool_calls_requested": [
+            {
+                "task_id": "serper_places_first_timer_1",
+                "name": "serper_places",
+                "arguments": {
+                    "query": _first_timer_discovery_query(request),
+                    "category": "本地体验",
+                    "max_results": 8,
+                },
+                "required": True,
+            }
+        ],
+        "data_gaps": [],
+        "skip_image_enrichment": True,
+    }
+
+
 def _enforce_obvious_itinerary_contract(
     contract: dict[str, Any],
     request: TravelPlanRequest,
@@ -969,6 +997,44 @@ def _is_obvious_itinerary_request(request: TravelPlanRequest) -> bool:
         "trip plan",
     ]
     return has_duration and any(term in text for term in itinerary_terms)
+
+
+def _is_obvious_first_timer_recommendation_request(request: TravelPlanRequest) -> bool:
+    text = _request_text(request).lower()
+    if not text:
+        return False
+    if _is_obvious_itinerary_request(request):
+        return False
+    if any(token in text for token in ["是什么", "为什么", "安全吗", "签证", "天气", "weather", "visa"]):
+        return False
+    if any(token in text for token in ["怎么走", "路線", "路线", "换乘", "route", "transport"]):
+        return False
+    first_timer_markers = [
+        "第一次",
+        "初访",
+        "初訪",
+        "新手",
+        "首次",
+        "first time",
+        "first-time",
+        "first timer",
+        "first-timer",
+        "beginner",
+    ]
+    if not any(marker in text for marker in first_timer_markers):
+        return False
+    if not _needs_place_discovery_tools(request):
+        return False
+    return bool(_city_first_timer_anchor_specs(request))
+
+
+def _first_timer_discovery_query(request: TravelPlanRequest) -> str:
+    base = _place_discovery_query(request)
+    text = _request_text(request).lower()
+    hints = ["第一次", "新手", "经典景点", "things to do", "attractions"]
+    if "福冈" in text or "福岡" in text or "fukuoka" in text:
+        hints.extend(["博多", "天神", "太宰府", "大濠公园", "百道海滨", "福冈塔"])
+    return " ".join([base, *hints]).strip()
 
 
 def _itinerary_discovery_query(request: TravelPlanRequest) -> str:
@@ -1213,6 +1279,11 @@ def _deterministic_structured_card_contract(
         answer_mode == "itinerary"
         and _is_obvious_itinerary_request(request)
         and bool(_city_itinerary_anchor_specs(request))
+    )
+    can_use_city_anchors = can_use_city_anchors or (
+        answer_mode == "place_cards"
+        and _is_obvious_first_timer_recommendation_request(request)
+        and bool(_city_first_timer_anchor_specs(request))
     )
     if not places and not can_use_city_anchors:
         return None
@@ -2586,7 +2657,7 @@ async def _execute_orchestrator_tools(
             tool_results.append({"name": name, "status": "failed", "error": summary})
             if name in {"serper_places", "serper_search", "hotel_search", "flight_search", "route_lookup"}:
                 api_payloads.setdefault(_payload_key_for_failed_tool(name, args), [])
-    if intent.answer_mode != "answer_only":
+    if intent.answer_mode != "answer_only" and not contract.get("skip_image_enrichment"):
         api_payloads, image_warnings = await supervisor._enrich_payloads_with_place_images(request, api_payloads)
         warnings.extend(image_warnings)
     return api_payloads, warnings, tool_results, route_options
@@ -2722,6 +2793,50 @@ def _attach_itinerary_plan(
             "narrative_answer": narrative,
         }
     )
+
+
+def _attach_first_timer_city_anchor_cards(
+    *,
+    request: TravelPlanRequest,
+    response: TravelPlanResponse,
+) -> TravelPlanResponse:
+    if not _is_obvious_first_timer_recommendation_request(request):
+        return response
+    cards = _first_timer_display_cards_with_city_anchors(request, response.display_cards)
+    if cards == response.display_cards:
+        return response
+    return response.model_copy(
+        update={
+            "display_cards": cards,
+            "map_view": _itinerary_map_view_from_cards(response, cards),
+        }
+    )
+
+
+def _first_timer_display_cards_with_city_anchors(
+    request: TravelPlanRequest,
+    cards: list[TravelDisplayCard],
+) -> list[TravelDisplayCard]:
+    anchor_specs = _city_first_timer_anchor_specs(request)
+    if not anchor_specs:
+        return cards
+    min_map_ready = min(max(request.max_results, 5), 6)
+    usable_cards = list(cards)
+    map_ready_count = sum(1 for card in usable_cards if _is_map_ready_card(card))
+    if map_ready_count >= min_map_ready:
+        return usable_cards
+
+    next_index = _next_card_index(usable_cards)
+    for anchor in anchor_specs:
+        if map_ready_count >= min_map_ready:
+            break
+        if _matching_anchor_card(usable_cards, anchor) is not None:
+            continue
+        card = _anchor_spec_to_display_card(anchor, next_index)
+        usable_cards.append(card)
+        next_index += 1
+        map_ready_count += 1
+    return usable_cards
 
 
 def _itinerary_display_cards_with_city_anchors(
@@ -2936,6 +3051,59 @@ def _city_itinerary_anchor_specs(request: TravelPlanRequest) -> list[dict[str, A
     return []
 
 
+def _city_first_timer_anchor_specs(request: TravelPlanRequest) -> list[dict[str, Any]]:
+    text = _request_text(request).lower()
+    if "福冈" in text or "福岡" in text or "fukuoka" in text:
+        return [
+            {
+                "title": "博多旧市街",
+                "subcategory": "历史街区",
+                "description": "博多站和祇园一带好找、好停留，适合第一次到福冈先建立城市方位感。",
+                "address": "Hakata Ward, Fukuoka",
+                "lat": 33.5952,
+                "lng": 130.4144,
+                "source_provider": "first_timer_anchor",
+            },
+            {
+                "title": "天神",
+                "subcategory": "商业街区",
+                "description": "交通、餐饮、购物和屋台都集中，适合新手把晚餐和轻松逛街放在同一区域。",
+                "address": "Tenjin, Chuo Ward, Fukuoka",
+                "lat": 33.5904,
+                "lng": 130.3989,
+                "source_provider": "first_timer_anchor",
+            },
+            {
+                "title": "太宰府天满宫",
+                "subcategory": "神社",
+                "description": "福冈经典近郊半日点，路线清晰，适合想要传统氛围但不想排太复杂动线的新手。",
+                "address": "4 Chome-7-1 Saifu, Dazaifu",
+                "lat": 33.5214,
+                "lng": 130.5348,
+                "source_provider": "first_timer_anchor",
+            },
+            {
+                "title": "大濠公园",
+                "subcategory": "公园",
+                "description": "市内湖边公园，节奏低、停留弹性大，适合作为半日散步或太宰府回城后的缓冲。",
+                "address": "Ohorikoen, Chuo Ward, Fukuoka",
+                "lat": 33.5869,
+                "lng": 130.3796,
+                "source_provider": "first_timer_anchor",
+            },
+            {
+                "title": "百道海滨",
+                "subcategory": "海滨",
+                "description": "海边、福冈塔和开阔景观集中，适合第一次去时安排成轻松半日，不要和远郊硬串。",
+                "address": "Momochihama, Sawara Ward, Fukuoka",
+                "lat": 33.5934,
+                "lng": 130.3515,
+                "source_provider": "first_timer_anchor",
+            },
+        ]
+    return []
+
+
 def _anchor_spec_to_display_card(spec: dict[str, Any], index: int) -> TravelDisplayCard:
     title = str(spec["title"])
     address = str(spec.get("address") or "")
@@ -2951,7 +3119,7 @@ def _anchor_spec_to_display_card(spec: dict[str, Any], index: int) -> TravelDisp
         description=str(spec.get("description") or ""),
         address=address,
         image_status="missing",
-        source_provider="itinerary_anchor",
+        source_provider=str(spec.get("source_provider") or "itinerary_anchor"),
         reason=str(spec.get("description") or ""),
         display_reason=str(spec.get("description") or ""),
         lat=lat,
