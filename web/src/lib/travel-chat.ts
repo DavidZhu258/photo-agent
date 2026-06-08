@@ -965,7 +965,7 @@ function runtimeWarnings(plan: RawTravelPlan): string[] {
 }
 
 function isInternalProviderWarning(warning: string): boolean {
-  return /Google Places 解析|Quota exceeded|SearchTextRequest|模型调用失败|formatter .*失败|critic .*失败|HTTP\s*5\d\d/i.test(
+  return /Google Places 解析|Quota exceeded|SearchTextRequest|模型调用失败|formatter .*失败|critic .*失败|serper_(?:places|search|images)|google\.serper\.dev|Client error|Server error|HTTP\s*[45]\d\d/i.test(
     warning,
   );
 }

@@ -5,6 +5,7 @@ import {
   buildTravelPayload,
   mergeContextFromPlan,
   mergeContextFromText,
+  userFacingRuntimeWarnings,
 } from "../src/lib/travel-chat";
 
 const tripResponse = {
@@ -237,6 +238,17 @@ test("backend plan updates session memory for the next turn", () => {
   expect(payload.previous_context.last_cards?.[0]?.title).toBe("Shukkeien Garden");
   expect(payload.previous_context.map_pins?.[0]?.title).toBe("Shukkeien Garden");
   expect(payload.previous_context.selected_card_id).toBe("shukkeien");
+});
+
+test("runtime warnings hide non-blocking provider failures from users", () => {
+  expect(
+    userFacingRuntimeWarnings([
+      "serper_places API 调用失败：Client error '400 Bad Request' for url 'https://google.serper.dev/places'",
+      "HTTP 502 from serper_images",
+      "Google Places 解析失败",
+      "天气数据临时不可用，建议出发前再确认",
+    ]),
+  ).toEqual(["天气数据临时不可用，建议出发前再确认"]);
 });
 
 test("new answer-only questions keep city memory without inheriting stale map cards", () => {

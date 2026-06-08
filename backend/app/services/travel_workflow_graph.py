@@ -2690,12 +2690,13 @@ def _apply_orchestrator_contract(
     markdown = _sections_markdown(sections) or response.formatted_markdown or response.narrative_answer
     summary = _contract_summary({"sections": sections}) or _contract_summary(contract) or response.summary
     deterministic_fast_path = _is_deterministic_fast_path(state)
+    anchor_answer_sufficient = deterministic_fast_path and _has_sufficient_anchor_answer(state["request"], response)
     data_gap_candidates = [
         *response.data_gaps,
         *state.get("api_warnings", []),
         *_string_list(contract.get("data_gaps")),
     ]
-    if deterministic_fast_path and _has_sufficient_anchor_answer(state["request"], response):
+    if anchor_answer_sufficient:
         data_gap_candidates = [
             gap
             for gap in data_gap_candidates
@@ -2703,6 +2704,18 @@ def _apply_orchestrator_contract(
         ]
     data_gaps = list(dict.fromkeys(data_gap_candidates))
     refs = dict(response.raw_provider_refs or {})
+    if anchor_answer_sufficient:
+        runtime_warnings = _string_list(refs.get("model_runtime_warnings"))
+        if runtime_warnings:
+            filtered_runtime_warnings = [
+                warning
+                for warning in runtime_warnings
+                if not _is_non_blocking_fast_path_tool_warning(warning)
+            ]
+            if filtered_runtime_warnings:
+                refs["model_runtime_warnings"] = list(dict.fromkeys(filtered_runtime_warnings))
+            else:
+                refs.pop("model_runtime_warnings", None)
     orchestrator_model = "deterministic" if deterministic_fast_path else supervisor.model_router.orchestrator
     refs["travel_orchestrator"] = {
         "model": orchestrator_model,
@@ -2761,7 +2774,7 @@ def _apply_orchestrator_contract(
         )
     )
     optional_followups = response.optional_followups
-    if deterministic_fast_path and _has_sufficient_anchor_answer(state["request"], response):
+    if anchor_answer_sufficient:
         optional_followups = []
     return response.model_copy(
         update={

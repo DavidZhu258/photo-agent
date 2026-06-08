@@ -1815,6 +1815,8 @@ async def test_obvious_fukuoka_first_timer_suppresses_raw_serper_failure_when_an
     assert response.model_used == "deterministic"
     assert not response.data_gaps
     assert not response.optional_followups
+    runtime_warnings = response.raw_provider_refs.get("model_runtime_warnings", [])
+    assert not any("serper_places" in warning or "HTTP 502" in warning for warning in runtime_warnings)
     assert "HTTP 502" not in response.formatted_markdown
     assert "serper_places" not in response.formatted_markdown
 
