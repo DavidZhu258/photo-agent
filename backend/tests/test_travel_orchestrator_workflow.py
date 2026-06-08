@@ -555,18 +555,16 @@ async def test_gpt_orchestrator_place_query_uses_serper_places_and_images_withou
     assert called_agents == {"travel_orchestrator"}
     assert "activity_food" not in called_agents
     orchestrator_calls = [call for call in agent_client.calls if call["agent_name"] == "travel_orchestrator"]
-    assert len(orchestrator_calls) == 2
+    assert len(orchestrator_calls) == 1
     initial_call = next(call for call in orchestrator_calls if call["payload"].get("phase") != "final_answer")
-    final_call = next(call for call in orchestrator_calls if call["payload"].get("phase") == "final_answer")
     assert set(initial_call["payload"]["tool_contract"]) == {
         "route_lookup",
         "serper_images",
         "serper_places",
         "serper_search",
     }
-    assert final_call["payload"]["tool_results"]
     assert "博多 ふぐ料理 玄品" in response.formatted_markdown
-    assert response.raw_provider_refs["travel_orchestrator"]["finalization"] == "final_model_with_tools"
+    assert response.raw_provider_refs["travel_orchestrator"]["finalization"] == "deterministic_structured_cards"
     assert (
         response.raw_provider_refs["travel_orchestrator"]["ownership"]
         == "single_manager_initial_answer_with_lightweight_tools"
@@ -1052,7 +1050,8 @@ async def test_gpt_orchestrator_visual_context_does_not_call_gemini_specialist_i
     )
 
     called_agents = [call["agent_name"] for call in agent_client.calls]
-    assert called_agents == ["travel_orchestrator", "travel_orchestrator"]
+    assert called_agents == ["travel_orchestrator"]
+    assert not any(call["payload"].get("phase") == "final_answer" for call in agent_client.calls)
     assert response.display_cards
     assert response.map_view["status"] == "ready"
     initial_call = next(call for call in agent_client.calls if not call["payload"].get("phase"))
@@ -1187,7 +1186,7 @@ async def test_gpt_orchestrator_uses_freeform_multimodal_guidance_for_outdoor_pl
 
 
 @pytest.mark.asyncio
-async def test_gpt_orchestrator_uses_main_model_final_answer_after_tools():
+async def test_gpt_orchestrator_skips_final_model_when_cards_can_be_deterministically_summarized():
     agent_client = OrchestratorAgentClient()
     response = await _supervisor(agent_client, OutdoorSerperClient()).plan(
         TravelPlanRequest(
@@ -1202,8 +1201,19 @@ async def test_gpt_orchestrator_uses_main_model_final_answer_after_tools():
     assert response.display_cards
     assert "大濠公园" in response.formatted_markdown
     assert "步行" in response.formatted_markdown
-    assert response.raw_provider_refs["travel_orchestrator"]["finalization"] == "final_model_with_tools"
-    assert any(call["payload"].get("phase") == "final_answer" for call in agent_client.calls)
+    assert response.raw_provider_refs["travel_orchestrator"]["finalization"] == "deterministic_structured_cards"
+    assert not any(call["payload"].get("phase") == "final_answer" for call in agent_client.calls)
+
+    first_section = response.answer_sections[0]
+    top_card_ids = [card.id for card in response.display_cards[:3]]
+    top_pin_ids = [pin["id"] for pin in response.map_view["pins"][:3]]
+    assert first_section.title == "先看这 3 个"
+    assert first_section.card_ids == top_card_ids
+    assert first_section.pin_ids == top_pin_ids
+    assert len(response.answer_sections) <= 2
+    assert all(len(section.bullets) <= 3 for section in response.answer_sections)
+    assert len(response.formatted_markdown) < 900
+    assert "地图" in response.answer_sections[-1].title or "地图" in response.answer_sections[-1].body
 
 
 @pytest.mark.asyncio
@@ -1221,12 +1231,13 @@ async def test_gpt_orchestrator_retries_truncated_final_answer_stage_once():
             return await super().run_agent(agent_name=agent_name, model=model, prompt=prompt, payload=payload)
 
     agent_client = TruncatedOnceFinalAnswerAgentClient()
-    response = await _supervisor(agent_client, OutdoorSerperClient()).plan(
-        TravelPlanRequest(city="Fukuoka", query="福冈有什么自然风光？我喜欢步行", allow_web_search=True)
+    response = await _supervisor(agent_client, MinimalSerperClient()).plan(
+        TravelPlanRequest(city="Kyoto", query="东京到京都怎么走？", allow_web_search=True)
     )
 
     assert response.workflow_status == "completed"
     assert agent_client.final_attempts == 2
+    assert response.answer_mode == "route_map"
     assert response.raw_provider_refs["travel_orchestrator"]["finalization"] == "final_model_with_tools"
     assert not any("Unterminated string" in gap for gap in response.data_gaps)
 

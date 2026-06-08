@@ -262,6 +262,15 @@ async def _final_answer(state: TravelWorkflowState) -> dict[str, Any]:
         if initial_contract.get("answer_mode") == "answer_only":
             contract = {**initial_contract, "tool_calls_requested": []}
             source = "initial_answer_with_lightweight_search"
+        elif (
+            deterministic_contract := _deterministic_structured_card_contract(
+                initial_contract=initial_contract,
+                request=state["request"],
+                state=state,
+            )
+        ) is not None:
+            contract = deterministic_contract
+            source = "deterministic_structured_cards"
         else:
             try:
                 contract = await _call_travel_orchestrator_final(
@@ -1074,6 +1083,49 @@ def _ensure_classified_sections(
     return updated
 
 
+def _deterministic_structured_card_contract(
+    *,
+    initial_contract: dict[str, Any],
+    request: TravelPlanRequest,
+    state: TravelWorkflowState,
+) -> dict[str, Any] | None:
+    if initial_contract.get("answer_mode") != "place_cards":
+        return None
+    if not _place_items_from_payloads(state.get("api_payloads", {})):
+        return None
+    if not _can_replace_initial_sections_with_card_summary(initial_contract):
+        return None
+    answer_framework = _classified_answer_framework(request, state)
+    contract = dict(initial_contract)
+    contract["sections"] = []
+    contract["tool_calls_requested"] = []
+    contract["answer_framework"] = answer_framework.get("name")
+    return contract
+
+
+def _can_replace_initial_sections_with_card_summary(contract: dict[str, Any]) -> bool:
+    sections = _contract_sections(contract)
+    if not sections:
+        return True
+    generic_titles = {
+        "建议",
+        "推荐",
+        "推荐理由",
+        "怎么选",
+        "去哪儿",
+        "怎么走/地图",
+        "怎么排/地图",
+        "附近怎么玩",
+    }
+    for section in sections:
+        if _list_of_dicts(section.get("tables")) or _list_of_dicts(section.get("images")):
+            return False
+        title = str(section.get("title") or "").strip()
+        if title and title not in generic_titles:
+            return False
+    return True
+
+
 def _grounded_contract_after_final_model_error(
     *,
     initial_contract: dict[str, Any],
@@ -1204,6 +1256,110 @@ def _freeform_sections_from_places(
         }
     ]
     return sections
+
+
+def _concise_sections_from_display_cards(
+    request: TravelPlanRequest,
+    response: TravelPlanResponse,
+) -> list[dict[str, Any]]:
+    cards = response.display_cards[:3]
+    if not cards:
+        return []
+    card_ids = [card.id for card in cards]
+    pins = _list_of_dicts((response.map_view or {}).get("pins"))[:3]
+    pin_ids = [str(pin.get("id") or "").strip() for pin in pins if str(pin.get("id") or "").strip()]
+    top_names = "、".join(card.title for card in cards if card.title)
+    category_hint = _dominant_card_category(cards)
+    body = (
+        f"先看 {top_names}。因为这些候选已经有地点卡片"
+        f"{'和地图 pins' if pin_ids else ''}，适合先保存、对比位置，再决定要不要加入行程。"
+    )
+    if category_hint == "美食":
+        body = (
+            f"先看 {top_names}。因为这些候选更贴近这次餐饮问题，并且已经有地点卡片"
+            f"{'和地图 pins' if pin_ids else ''}，适合先核对菜单、预约和当天动线。"
+        )
+    return [
+        {
+            "id": "top-cards",
+            "title": "先看这 3 个",
+            "body": body,
+            "bullets": [_card_summary_bullet(card, request) for card in cards],
+            "card_ids": card_ids,
+            "pin_ids": pin_ids,
+        },
+        {
+            "id": "map-use",
+            "title": "怎么用地图",
+            "body": _map_use_body(request, cards, bool(pin_ids)),
+            "bullets": _map_use_bullets(request, cards),
+            "card_ids": card_ids,
+            "pin_ids": pin_ids,
+        },
+    ]
+
+
+def _dominant_card_category(cards: list[TravelDisplayCard]) -> str:
+    counts: dict[str, int] = {}
+    for card in cards:
+        category = str(card.category or "").strip()
+        if category:
+            counts[category] = counts.get(category, 0) + 1
+    if not counts:
+        return ""
+    return sorted(counts.items(), key=lambda item: item[1], reverse=True)[0][0]
+
+
+def _card_summary_bullet(card: TravelDisplayCard, request: TravelPlanRequest) -> str:
+    facts: list[str] = []
+    if card.rating is not None:
+        facts.append(f"评分 {card.rating:g}")
+    if card.review_count:
+        facts.append(f"{card.review_count} 条评价")
+    if card.address:
+        facts.append(card.address)
+    reason = _compact_sentence(card.display_reason or card.description or card.reason, limit=70)
+    if not reason:
+        reason = "信息相对完整，适合先放进短名单"
+    fact_text = f"（{'；'.join(facts[:2])}）" if facts else ""
+    return f"{card.title}{fact_text}：{reason}"
+
+
+def _map_use_body(
+    request: TravelPlanRequest,
+    cards: list[TravelDisplayCard],
+    has_pins: bool,
+) -> str:
+    names = "、".join(card.title for card in cards[:2] if card.title) or "这些地点"
+    query_text = f"{request.query} {request.question} {' '.join(request.interest_tags)}".lower()
+    if "步行" in query_text or "walk" in query_text:
+        return f"你提到步行，地图先用来判断 {names} 是否同区；跨区候选不要硬串成全程步行。"
+    if has_pins:
+        return f"地图先用来判断 {names} 的相对位置：同区就串联，太分散就拆成不同半日。"
+    return "目前卡片可先做短名单；如果缺少坐标，下一步应先补地图定位再排行程。"
+
+
+def _map_use_bullets(
+    request: TravelPlanRequest,
+    cards: list[TravelDisplayCard],
+) -> list[str]:
+    bullets = [
+        "先保存前 3 张卡片，再用 pins 看同区组合，避免只按评分排序。",
+        "把离住宿、车站或当天主景点最近的候选放前面。",
+    ]
+    query_text = f"{request.query} {request.question}".lower()
+    if "吃" in query_text or "美食" in query_text or "餐" in query_text or "河豚" in query_text:
+        bullets.append("餐厅类先核对营业时间、预约和菜单；当前回答不代替实时订位。")
+    else:
+        bullets.append("如果天气、体力或交通变差，优先保留同一区域内的低成本点位。")
+    return bullets[:3]
+
+
+def _compact_sentence(value: str, *, limit: int) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 1)].rstrip("，。；、 ") + "…"
 
 
 def _sections_reference_places(sections: list[dict[str, Any]], places: list[dict[str, Any]]) -> bool:
@@ -1971,6 +2127,8 @@ def _apply_orchestrator_contract(
     initial_tool_calls = _contract_tool_calls(initial_contract)
     route_options = state.get("route_options", []) or _route_options_from_contract(contract)
     sections = _contract_sections(contract)
+    if state.get("finalization_source") == "deterministic_structured_cards" and response.display_cards:
+        sections = _concise_sections_from_display_cards(state["request"], response)
     if not sections and route_options:
         sections = _classified_sections_from_routes(state["request"], route_options)
     markdown = _sections_markdown(sections) or response.formatted_markdown or response.narrative_answer
@@ -2047,8 +2205,16 @@ def _apply_orchestrator_contract(
             "workflow_summary": workflow_summary,
             "agentic_workflow": _orchestrator_workflow_steps(state),
             "model_used": model_used,
-            "formatter_model_used": "travel_orchestrator",
-            "reasoning_mode": "gpt_orchestrator+bounded_tools+final_synthesis",
+            "formatter_model_used": (
+                "deterministic_card_summary"
+                if state.get("finalization_source") == "deterministic_structured_cards"
+                else "travel_orchestrator"
+            ),
+            "reasoning_mode": (
+                "gpt_orchestrator+bounded_tools+deterministic_card_summary"
+                if state.get("finalization_source") == "deterministic_structured_cards"
+                else "gpt_orchestrator+bounded_tools+final_synthesis"
+            ),
             "needs_user_confirmation": bool(data_gaps),
         }
     )
