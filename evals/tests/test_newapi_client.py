@@ -56,3 +56,49 @@ async def test_client_requests_streaming_because_newapi_non_stream_can_be_usage_
 
     assert result == "OK"
     assert '"stream":true' in captured["payload"].replace(" ", "")
+
+
+@pytest.mark.asyncio
+async def test_client_stops_reading_sse_after_done_without_waiting_for_connection_close(monkeypatch):
+    class NeverEndingSseResponse:
+        headers = {"content-type": "text/event-stream"}
+
+        def raise_for_status(self):
+            return None
+
+        async def aiter_lines(self):
+            yield 'data: {"choices":[{"delta":{"content":"done-fast"}}]}'
+            yield "data: [DONE]"
+            raise AssertionError("client should stop reading once [DONE] is received")
+
+    class StreamingOnlyClient:
+        def __init__(self):
+            self.stream_called = False
+
+        def stream(self, method, url, *, headers, json):
+            self.stream_called = True
+            assert method == "POST"
+            assert url.endswith("/chat/completions")
+            assert headers["Authorization"] == "Bearer secret-key"
+            assert json["stream"] is True
+
+            class Context:
+                async def __aenter__(self):
+                    return NeverEndingSseResponse()
+
+                async def __aexit__(self, exc_type, exc, tb):
+                    return False
+
+            return Context()
+
+        async def post(self, *args, **kwargs):
+            raise AssertionError("streaming NewAPI calls must not use post(), which waits for EOF")
+
+    monkeypatch.setenv("NEWAPI_API_KEY", "secret-key")
+    fake_client = StreamingOnlyClient()
+    client = NewApiChatClient(http_client=fake_client)
+
+    result = await client.chat(messages=[{"role": "user", "content": "ping"}], model="gpt-5.5")
+
+    assert result == "done-fast"
+    assert fake_client.stream_called is True

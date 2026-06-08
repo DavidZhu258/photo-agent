@@ -119,20 +119,17 @@ class NewApiChatClient:
         client = self._http_client or httpx.AsyncClient(timeout=self.timeout)
         should_close = self._http_client is None
         try:
-            response = await client.post(
+            async with client.stream(
+                "POST",
                 f"{self.base_url}/chat/completions",
                 headers={
                     "Authorization": f"Bearer {self.api_key}",
                     "Content-Type": "application/json",
                 },
                 json=payload,
-            )
-            response.raise_for_status()
-            content_type = response.headers.get("content-type", "")
-            if "application/json" in content_type:
-                content = parse_chat_content(response.json())
-            else:
-                content = parse_chat_content(response.text)
+            ) as response:
+                response.raise_for_status()
+                content = await _read_chat_response_content(response)
             if not content:
                 raise RuntimeError("NewAPI returned empty assistant content.")
             return content
@@ -142,3 +139,38 @@ class NewApiChatClient:
         finally:
             if should_close:
                 await client.aclose()
+
+
+async def _read_chat_response_content(response: httpx.Response) -> str:
+    content_type = response.headers.get("content-type", "")
+    if "text/event-stream" in content_type:
+        return await _read_sse_chat_content(response)
+    raw = await response.aread()
+    text = raw.decode(response.encoding or "utf-8", errors="replace")
+    if "application/json" in content_type:
+        try:
+            return parse_chat_content(json.loads(text))
+        except json.JSONDecodeError:
+            return parse_chat_content(text)
+    return parse_chat_content(text)
+
+
+async def _read_sse_chat_content(response: httpx.Response) -> str:
+    parts: list[str] = []
+    async for line in response.aiter_lines():
+        stripped = line.strip()
+        if not stripped.startswith("data:"):
+            continue
+        data = stripped.removeprefix("data:").strip()
+        if not data:
+            continue
+        if data == "[DONE]":
+            break
+        try:
+            parsed = json.loads(data)
+        except json.JSONDecodeError:
+            continue
+        chunk = parse_chat_content(parsed)
+        if chunk:
+            parts.append(chunk)
+    return "".join(parts)
