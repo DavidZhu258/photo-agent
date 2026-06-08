@@ -975,11 +975,13 @@ def _is_obvious_itinerary_request(request: TravelPlanRequest) -> bool:
     text = _request_text(request).lower()
     if not text:
         return False
+    if _is_arrival_timing_logistics_question(text):
+        return False
     if any(token in text for token in ["是什么", "为什么", "安全吗", "签证", "天气", "weather", "visa"]):
         return False
     has_duration = bool(
         re.search(r"\d+\s*(?:天|日|晚|day|days|night|nights)", text, flags=re.I)
-        or re.search(r"[一二两三四五六七八九十]\s*(?:天|日|晚)", text)
+        or re.search(r"(?<!第)[一二两三四五六七八九十]\s*(?:天|日|晚)", text)
     )
     itinerary_terms = [
         "行程",
@@ -999,6 +1001,19 @@ def _is_obvious_itinerary_request(request: TravelPlanRequest) -> bool:
         "trip plan",
     ]
     return has_duration and any(term in text for term in itinerary_terms)
+
+
+def _is_arrival_timing_logistics_question(text: str) -> bool:
+    lowered = text.lower()
+    has_arrival_context = bool(
+        any(token in text for token in ["机场", "抵达", "到达", "才到", "落地", "当晚", "晚上", "夜里"])
+        or any(token in lowered for token in ["airport", "arrival", "arrive", "late night"])
+    )
+    has_next_step_question = bool(
+        any(token in text for token in ["当晚", "当天晚上", "第二天", "第二日", "次日", "怎么开始", "还适合安排什么"])
+        or any(token in lowered for token in ["next day", "first night"])
+    )
+    return has_arrival_context and has_next_step_question
 
 
 def _is_obvious_first_timer_recommendation_request(request: TravelPlanRequest) -> bool:
@@ -1731,7 +1746,7 @@ def _first_timer_sections_from_cards(
     request: TravelPlanRequest,
     cards: list[TravelDisplayCard],
 ) -> list[dict[str, Any]]:
-    names = _display_card_names(cards)
+    names = _display_card_names(cards, limit=5)
     city = request.city or "这座城市"
     return [
         {
@@ -1740,7 +1755,7 @@ def _first_timer_sections_from_cards(
             "body": f"第一次去{city}，我会先选好理解、交通不复杂、能代表城市气质的点；当前先看{names}。",
             "bullets": [
                 f"新手主候选：{_card_summary_bullet(cards[0], request)}",
-                *[f"新手备选：{_card_summary_bullet(card, request)}" for card in cards[1:3]],
+                *[f"新手备选：{_card_summary_bullet(card, request)}" for card in cards[1:5]],
                 "不要只按评分堆地点：新手更需要顺路、好找、停留时间弹性大。",
             ],
         },
@@ -3352,7 +3367,7 @@ def _itinerary_city_plan_note(request: TravelPlanRequest, cards: list[TravelDisp
     if ("京都" in combined or "kyoto" in combined) and ("大阪" in combined or "osaka" in combined):
         return "住宿建议：前两晚住京都，第3天早上或中午移动到大阪，最后一晚住大阪；这样只换一次酒店，也能把两座城市分组玩。"
     if "福冈" in combined or "fukuoka" in combined:
-        return "节奏建议：第1天放博多/天神熟悉城市，第2天做太宰府半日加回城市内散步，第3天放百道海滨或福冈塔，留离境缓冲。"
+        return "住宿建议优先住博多或天神；第1天用博多/天神熟悉城市并解决晚餐，第2天太宰府半日后回大濠公园散步，第3天放百道海滨或福冈塔，午餐后留机场/返程缓冲。"
     if "低预算" in combined or "预算" in combined or "budget" in combined:
         return "低预算建议：每天只安排 0–1 个付费主项目，其余用公园、街区、市场和小吃补足体验。"
     return "动线建议：每天只设一个主区域，补一个同区备选，优先公共交通顺路而不是高分点堆叠。"

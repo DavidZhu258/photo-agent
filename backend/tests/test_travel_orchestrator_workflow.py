@@ -1456,6 +1456,9 @@ async def test_fukuoka_three_day_itinerary_uses_deterministic_day_by_day_plan():
     assert "百道" in markdown or "福冈塔" in markdown or "海滨" in markdown
     assert "轻松" in markdown or "低强度" in markdown or "缓冲" in markdown
     assert "同区" in markdown or "回城" in markdown or "西铁" in markdown or "地铁" in markdown
+    assert "住宿" in markdown and ("博多" in markdown or "天神" in markdown)
+    assert "午餐" in markdown or "晚餐" in markdown or "吃饭" in markdown
+    assert "机场" in markdown or "离境" in markdown or "返程" in markdown
     assert "河豚" not in markdown
     assert "安全" not in markdown
     assert len(response.itinerary_plan.days) == 3
@@ -1793,6 +1796,8 @@ async def test_empty_obvious_fukuoka_first_timer_recommendation_uses_city_anchor
     assert titles[:5] == ["博多旧市街", "天神", "太宰府天满宫", "大濠公园", "百道海滨"]
     assert "第一次" in response.formatted_markdown
     assert "交通" in response.formatted_markdown or "顺路" in response.formatted_markdown
+    for title in titles[:5]:
+        assert title in response.formatted_markdown
     assert "没有可核验地点" not in response.formatted_markdown
 
 
@@ -1819,6 +1824,42 @@ async def test_obvious_fukuoka_first_timer_suppresses_raw_serper_failure_when_an
     assert not any("serper_places" in warning or "HTTP 502" in warning for warning in runtime_warnings)
     assert "HTTP 502" not in response.formatted_markdown
     assert "serper_places" not in response.formatted_markdown
+
+
+@pytest.mark.asyncio
+async def test_late_arrival_fukuoka_airport_is_not_treated_as_generic_two_day_itinerary():
+    class LateArrivalAgentClient(OrchestratorAgentClient):
+        async def run_agent(self, *, agent_name: str, model: str, prompt: str, payload: dict) -> dict:
+            if agent_name == "travel_orchestrator" and not payload.get("phase"):
+                self.calls.append({"agent_name": agent_name, "model": model, "prompt": prompt, "payload": payload})
+                return {
+                    "answer_mode": "answer_only",
+                    "sections": [
+                        {
+                            "title": "当晚",
+                            "body": "晚上9点到福冈机场，先入境、取行李、进市区和入住；当晚只适合酒店周边宵夜或便利店。",
+                            "bullets": ["第二天从博多或天神轻松开始，不要把太宰府或海边塞进抵达夜。"],
+                        }
+                    ],
+                    "tool_calls_requested": [],
+                    "data_gaps": [],
+                }
+            return await super().run_agent(agent_name=agent_name, model=model, prompt=prompt, payload=payload)
+
+    agent_client = LateArrivalAgentClient()
+    response = await _supervisor(agent_client, MinimalSerperClient()).plan(
+        TravelPlanRequest(city="Fukuoka", query="我晚上 9 点才到福冈机场，当晚还适合安排什么？第二天怎么开始？", allow_web_search=True)
+    )
+
+    markdown = response.formatted_markdown
+    assert response.answer_mode == "answer_only"
+    assert agent_client.calls
+    assert response.llm_used is True
+    assert "晚上9点" in markdown or "晚上 9 点" in markdown
+    assert "入住" in markdown or "酒店" in markdown
+    assert "第二天" in markdown
+    assert "第1天" not in markdown and "上午：博多旧市街" not in markdown
+    assert "太宰府天满宫 → 大濠公园 → 百道海滨" not in markdown
 
 
 @pytest.mark.asyncio
