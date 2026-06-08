@@ -1187,7 +1187,7 @@ class FukuokaFirstTimerSerperClient(MinimalSerperClient):
                     "latitude": 33.5931,
                     "longitude": 130.4107,
                     "place_id": "kushida-shrine",
-                    "query_variant": category,
+                    "query_variant": "Fukuoka first-time parks shrines attractions",
                 },
                 {
                     "title": "Hakata Old Town Area",
@@ -1246,6 +1246,9 @@ async def test_first_timer_cards_explain_practical_fit_not_rating_address_metada
     momochihama = next(card for card in response.display_cards if card.title == "Momochihama Beach")
     assert "海" in momochihama.display_reason or "海滨" in momochihama.display_reason
     assert "湖边" not in momochihama.display_reason
+    kushida = next(card for card in response.display_cards if card.title == "栉田神社")
+    assert "老城区" in kushida.display_reason or "短停" in kushida.display_reason
+    assert "湖边" not in kushida.display_reason
 
 
 @pytest.mark.asyncio

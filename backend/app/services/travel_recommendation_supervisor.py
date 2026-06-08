@@ -4016,7 +4016,7 @@ def _task_aware_display_reason(
     text = _normalized_match_text(
         " ".join(
             str(item.get(key) or "")
-            for key in ["title", "name", "type", "category", "address", "location", "snippet", "description", "query_variant"]
+            for key in ["title", "name", "type", "category", "address", "location", "snippet", "description"]
         )
     )
     category = _canonical_travel_category(group_title or resolved_intent.get("category"))
