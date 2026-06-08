@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
@@ -199,10 +200,134 @@ def _case_question(case: EvalCase) -> str:
 
 
 def _candidate_output(body: object) -> str:
+    structured = _structured_candidate_output(body)
+    if structured:
+        return structured
     text = assistant_text(body)
     if text:
         return text
     return json.dumps(body, ensure_ascii=False, sort_keys=True)
+
+
+def _structured_candidate_output(body: object) -> str:
+    if not isinstance(body, Mapping):
+        return ""
+    message = body.get("message")
+    if not isinstance(message, Mapping):
+        return ""
+    parts = message.get("parts")
+    if not isinstance(parts, Sequence) or isinstance(parts, (str, bytes)):
+        return ""
+
+    lines: list[str] = []
+    for part in parts:
+        if not isinstance(part, Mapping):
+            continue
+        part_type = str(part.get("type") or "")
+        if part_type == "text" and isinstance(part.get("text"), str):
+            lines.append(f"assistant_text: {_short_text(part['text'], 1200)}")
+        elif part_type == "trip-answer-sections":
+            lines.extend(_summarize_answer_sections(part.get("sections")))
+        elif part_type == "trip-cards":
+            lines.extend(_summarize_trip_cards(part.get("cards")))
+        elif part_type == "trip-map":
+            lines.extend(_summarize_trip_map(part.get("map")))
+        elif part_type == "runtime-warnings":
+            warnings = _string_list(part.get("warnings"))[:5]
+            if warnings:
+                lines.append(f"runtime_warnings: {json.dumps(warnings, ensure_ascii=False)}")
+    return "\n".join(lines).strip()
+
+
+def _summarize_answer_sections(sections: object) -> list[str]:
+    if not isinstance(sections, Sequence) or isinstance(sections, (str, bytes)):
+        return []
+    lines = ["answer_sections:"]
+    for section in list(sections)[:8]:
+        if not isinstance(section, Mapping):
+            continue
+        title = _short_text(section.get("title"), 120)
+        body = _short_text(section.get("body"), 400)
+        bullets = _string_list(section.get("bullets"))[:6]
+        card_ids = _string_list(section.get("card_ids"))[:8]
+        lines.append(
+            json.dumps(
+                {
+                    "title": title,
+                    "body": body,
+                    "bullets": bullets,
+                    "card_ids": card_ids,
+                },
+                ensure_ascii=False,
+            )
+        )
+    return lines
+
+
+def _summarize_trip_cards(cards: object) -> list[str]:
+    if not isinstance(cards, Sequence) or isinstance(cards, (str, bytes)):
+        return []
+    lines = ["trip_cards:"]
+    for card in list(cards)[:12]:
+        if not isinstance(card, Mapping):
+            continue
+        lines.append(
+            json.dumps(
+                {
+                    "title": _short_text(card.get("title"), 120),
+                    "category": _short_text(card.get("category"), 80),
+                    "subcategory": _short_text(card.get("subcategory"), 80),
+                    "address": _short_text(card.get("address"), 160),
+                    "reason": _short_text(card.get("display_reason") or card.get("reason"), 400),
+                    "rating": card.get("rating"),
+                    "source_provider": _short_text(card.get("source_provider"), 80),
+                },
+                ensure_ascii=False,
+            )
+        )
+    return lines
+
+
+def _summarize_trip_map(map_part: object) -> list[str]:
+    if not isinstance(map_part, Mapping):
+        return []
+    pins = map_part.get("pins")
+    pin_summaries: list[dict[str, object]] = []
+    if isinstance(pins, Sequence) and not isinstance(pins, (str, bytes)):
+        for pin in list(pins)[:12]:
+            if not isinstance(pin, Mapping):
+                continue
+            pin_summaries.append(
+                {
+                    "title": _short_text(pin.get("title"), 120),
+                    "category": _short_text(pin.get("category"), 80),
+                    "address": _short_text(pin.get("address"), 160),
+                }
+            )
+    return [
+        "trip_map: "
+        + json.dumps(
+            {
+                "status": _short_text(map_part.get("status"), 80),
+                "pin_count": len(pins) if isinstance(pins, Sequence) and not isinstance(pins, (str, bytes)) else 0,
+                "pins": pin_summaries,
+            },
+            ensure_ascii=False,
+        )
+    ]
+
+
+def _string_list(value: object) -> list[str]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        return []
+    return [_short_text(item, 240) for item in value if str(item or "").strip()]
+
+
+def _short_text(value: object, limit: int) -> str:
+    text = str(value or "").strip()
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 1)].rstrip() + "…"
 
 
 def _build_summary(
