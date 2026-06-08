@@ -94,6 +94,8 @@ class OpenAICompatibleLLMClient:
                 },
             ],
         }
+        if _needs_streaming_chat(self.base_url, model):
+            request_body["stream"] = True
         if reasoning_effort:
             request_body["reasoning_effort"] = reasoning_effort
         if tools:
@@ -152,6 +154,14 @@ def _system_with_default_language(system: str, model: str) -> str:
 def _needs_simplified_chinese_default(model: str) -> bool:
     normalized = str(model or "").strip().lower()
     return normalized.startswith("gpt-5.5") or "/gpt-5.5" in normalized
+
+
+def _needs_streaming_chat(base_url: str, model: str) -> bool:
+    normalized_base = str(base_url or "").strip().lower()
+    normalized_model = str(model or "").strip().lower()
+    return "zzshu.cc" in normalized_base and (
+        normalized_model.startswith("gpt-") or "/gpt-" in normalized_model
+    )
 
 
 def _message_content(payload: dict[str, Any]) -> str:

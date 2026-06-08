@@ -188,6 +188,34 @@ async def test_complete_text_parses_sse_chat_chunks_from_gateway():
 
 
 @pytest.mark.asyncio
+async def test_gpt_gateway_requests_streaming_to_avoid_usage_only_sse():
+    captured: dict[str, object] = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured["payload"] = json.loads(request.content.decode("utf-8"))
+        body = (
+            'data: {"choices":[{"delta":{"content":"OK"},"finish_reason":"stop"}]}\n\n'
+            "data: [DONE]\n\n"
+        )
+        return httpx.Response(200, text=body, request=request)
+
+    client = OpenAICompatibleLLMClient(
+        api_key="test",
+        base_url="https://www.zzshu.cc/v1",
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+
+    result = await client.complete_text(
+        model="gpt-5.5",
+        system="plain",
+        payload={"query": "ping"},
+    )
+
+    assert result == "OK"
+    assert captured["payload"]["stream"] is True
+
+
+@pytest.mark.asyncio
 async def test_complete_json_can_send_native_tools_with_auto_choice():
     captured: dict[str, object] = {}
 

@@ -35,10 +35,15 @@ class Settings:
     litellm_base_url: str | None = os.getenv("LITELLM_BASE_URL")
     litellm_api_key: str | None = os.getenv("LITELLM_API_KEY")
     travel_main_api_key: str | None = os.getenv(
-        "TRAVEL_MAIN_API_KEY", os.getenv("ZZSHU_API_KEY")
+        "NEWAPI_API_KEY",
+        os.getenv("TRAVEL_MAIN_API_KEY", os.getenv("ZZSHU_API_KEY")),
     )
     travel_main_base_url: str = os.getenv(
-        "TRAVEL_MAIN_BASE_URL", os.getenv("ZZSHU_BASE_URL", "https://zzshu.cc/v1")
+        "NEWAPI_BASE_URL",
+        os.getenv(
+            "TRAVEL_MAIN_BASE_URL",
+            os.getenv("ZZSHU_BASE_URL", "https://www.zzshu.cc/v1"),
+        ),
     )
     visual_primary_provider: str = os.getenv("VISUAL_PRIMARY_PROVIDER", "")
     google_api_key: str | None = os.getenv("GOOGLE_API_KEY")

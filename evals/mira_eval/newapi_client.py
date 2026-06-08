@@ -109,7 +109,7 @@ class NewApiChatClient:
             "model": model,
             "messages": messages,
             "temperature": temperature,
-            "stream": False,
+            "stream": True,
         }
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
